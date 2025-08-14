@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line
@@ -34,6 +35,16 @@ const fileToBase64 = (file: File): Promise<string> => {
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = error => reject(error);
     });
+};
+const getMonthsBetween = (startDateStr: string, endDateStr: string): number => {
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+    
+    let months = (end.getFullYear() - start.getFullYear()) * 12;
+    months -= start.getMonth();
+    months += end.getMonth();
+    return months <= 0 ? 0 : months + 1;
 };
 
 // LOCAL STORAGE HOOK
@@ -1558,7 +1569,36 @@ const InvestmentsView: React.FC = () => {
 const SavingsForm: React.FC<{onClose: () => void; existingSaving?: SavingsInstrument}> = ({onClose, existingSaving}) => {
     const { addSaving, updateSaving } = useFinance();
     const [saving, setSaving] = useState<Partial<SavingsInstrument>>(existingSaving || { type: SavingsType.FD, principal: 0, interestRate: 0 });
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setSaving(p => ({ ...p, [e.target.name]: ['principal', 'interestRate'].includes(e.target.name) ? parseFloat(e.target.value) : e.target.value }));
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setSaving(p => ({ ...p, [e.target.name]: ['principal', 'interestRate', 'maturityAmount'].includes(e.target.name) ? parseFloat(e.target.value) : e.target.value }));
+    
+    const handleCalculateMaturity = () => {
+        const { type, principal, interestRate, depositDate, maturityDate } = saving;
+        if (!type || !principal || !interestRate || !depositDate || !maturityDate) {
+            alert("Please fill in Principal, Interest Rate, and both dates to calculate.");
+            return;
+        }
+
+        const tenureMonths = getMonthsBetween(depositDate, maturityDate);
+        if (tenureMonths <= 0) {
+            alert("Maturity Date must be after Deposit Date.");
+            return;
+        }
+
+        let calculatedAmount = 0;
+        const rate = interestRate / 100;
+
+        if (type === SavingsType.FD) {
+            const tenureYears = tenureMonths / 12;
+            calculatedAmount = principal * Math.pow(1 + rate / 4, 4 * tenureYears);
+        } else { // SavingsType.RD
+            const monthlyRate = rate / 12;
+            const n = tenureMonths;
+            calculatedAmount = principal * ((Math.pow(1 + monthlyRate, n) - 1) / monthlyRate) * (1 + monthlyRate);
+        }
+        
+        setSaving(p => ({ ...p, maturityAmount: parseFloat(calculatedAmount.toFixed(2)) }));
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const data = { ...saving, depositDate: saving.depositDate ? new Date(saving.depositDate).toISOString() : new Date().toISOString(), maturityDate: saving.maturityDate ? new Date(saving.maturityDate).toISOString() : new Date().toISOString() };
@@ -1573,6 +1613,15 @@ const SavingsForm: React.FC<{onClose: () => void; existingSaving?: SavingsInstru
             <input type="text" name="accountNumber" placeholder="Account Number" value={saving.accountNumber || ''} onChange={handleChange} required className={inputClasses} />
             <input type="number" step="any" name="principal" placeholder={saving.type === SavingsType.RD ? "Monthly Installment" : "Principal Amount"} value={saving.principal || ''} onChange={handleChange} required className={inputClasses} />
             <input type="number" step="any" name="interestRate" placeholder="Interest Rate (%)" value={saving.interestRate || ''} onChange={handleChange} required className={inputClasses} />
+            
+            <div className="flex items-end gap-2">
+                <div className="flex-grow">
+                    <label className="text-sm text-content-200">Maturity Amount (Optional)</label>
+                    <input type="number" step="any" name="maturityAmount" placeholder="Expected return" value={saving.maturityAmount || ''} onChange={handleChange} className={inputClasses} />
+                </div>
+                <Button type="button" variant="secondary" onClick={handleCalculateMaturity} className="h-[52px] whitespace-nowrap !px-3">Calculate</Button>
+            </div>
+            
             <div><label className="text-sm text-content-200">Deposit Date</label><CustomDatePicker value={saving.depositDate || ''} onChange={date => setSaving(p => ({...p, depositDate: date}))}/></div>
             <div><label className="text-sm text-content-200">Maturity Date</label><CustomDatePicker value={saving.maturityDate || ''} onChange={date => setSaving(p => ({...p, maturityDate: date}))}/></div>
             <div className="flex justify-end gap-3 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit">{existingSaving ? 'Update' : 'Add'} Savings</Button></div>
@@ -1588,16 +1637,61 @@ const SavingsView: React.FC = () => {
     const openModal = (saving?: SavingsInstrument) => { setEditingSaving(saving); setIsModalOpen(true); };
     const closeModal = () => { setEditingSaving(undefined); setIsModalOpen(false); };
     const filteredSavings = useMemo(() => savings.filter(s => s.bankName.toLowerCase().includes(searchTerm.toLowerCase())), [savings, searchTerm]);
+
+    const totalPrincipal = useMemo(() => {
+        return savings.reduce((sum, s) => {
+            if (s.type === SavingsType.FD) {
+                return sum + s.principal;
+            } else { // RD
+                const tenureMonths = getMonthsBetween(s.depositDate, s.maturityDate);
+                return sum + (s.principal * tenureMonths);
+            }
+        }, 0);
+    }, [savings]);
+
+    const totalMaturityValue = useMemo(() => {
+        return savings.reduce((sum, s) => sum + (s.maturityAmount || 0), 0);
+    }, [savings]);
+
     return (
         <div className="animate-fade-in">
              <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <h2 className="text-3xl font-bold text-white self-start md:self-center">Savings (FD/RD)</h2>
                  <div className="flex items-center gap-3 w-full md:w-auto"><div className="relative flex-grow"><input type="text" placeholder="Search by bank name..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-base-200/80 p-3 pl-10 rounded-xl text-white border border-base-300" /><div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-200">{ICONS.search}</div></div><Button onClick={() => openModal()} className="flex-shrink-0">{ICONS.plus}<span className="hidden sm:inline">Add Savings</span></Button></div>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <Card>
+                    <h4 className="font-semibold text-content-200 text-sm">Total Principal Invested</h4>
+                    <p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalPrincipal, primaryCurrency)}</p>
+                </Card>
+                <Card hasGlow={totalMaturityValue > totalPrincipal}>
+                    <h4 className="font-semibold text-content-200 text-sm">Total Expected Return</h4>
+                    <p className={classNames("text-2xl font-bold mt-1", totalMaturityValue > totalPrincipal ? 'text-accent-success' : 'text-content-100')}>{formatCurrency(totalMaturityValue, primaryCurrency)}</p>
+                </Card>
+            </div>
+
             {filteredSavings.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredSavings.map(s => (
-                    <Card key={s.id}><div className="flex flex-col h-full"><div className="flex justify-between items-start gap-2"><div className="flex-1"><h3 className="text-lg font-bold text-white truncate pr-2" title={s.bankName}>{s.bankName}</h3><p className="text-sm text-content-200 truncate pr-2">{s.accountNumber}</p></div><div className="flex gap-1.5 flex-shrink-0"><Button variant="secondary" className="p-1.5" onClick={() => openModal(s)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Are you sure you want to delete this saving instrument?`) && deleteSaving(s.id)}>{ICONS.trash}</Button></div></div><div className="flex-grow mt-3 pt-3 border-t border-base-300 grid grid-cols-2 gap-y-2 gap-x-4 text-sm"><div><span className="text-content-200 block">{s.type === SavingsType.RD ? "Installment" : "Principal"}</span> <span className="font-semibold text-white text-base">{formatCurrency(s.principal, primaryCurrency)}</span></div><div><span className="text-content-200 block">Interest Rate</span> <span className="font-semibold text-white text-base">{s.interestRate}%</span></div><div><span className="text-content-200 block">Deposit Date</span> <span className="font-semibold text-white">{formatDate(s.depositDate)}</span></div><div><span className="text-content-200 block">Maturity Date</span> <span className="font-semibold text-white">{formatDate(s.maturityDate)}</span></div></div></div></Card>
-                ))}</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredSavings.map(s => {
+                    const tenureMonths = getMonthsBetween(s.depositDate, s.maturityDate);
+                    const totalInvested = s.type === SavingsType.FD ? s.principal : s.principal * tenureMonths;
+                    const interestEarned = s.maturityAmount ? s.maturityAmount - totalInvested : 0;
+                    return (
+                    <Card key={s.id}><div className="flex flex-col h-full"><div className="flex justify-between items-start gap-2"><div className="flex-1"><h3 className="text-lg font-bold text-white truncate pr-2" title={s.bankName}>{s.bankName}</h3><p className="text-sm text-content-200 truncate pr-2">{s.accountNumber}</p></div><div className="flex gap-1.5 flex-shrink-0"><Button variant="secondary" className="p-1.5" onClick={() => openModal(s)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Are you sure you want to delete this saving instrument?`) && deleteSaving(s.id)}>{ICONS.trash}</Button></div></div>
+                    <div className="flex-grow mt-3 pt-3 border-t border-base-300 grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
+                        <div><span className="text-content-200 block">{s.type === SavingsType.RD ? "Installment" : "Principal"}</span> <span className="font-semibold text-white text-base">{formatCurrency(s.principal, primaryCurrency)}</span></div>
+                        <div><span className="text-content-200 block">Interest Rate</span> <span className="font-semibold text-white text-base">{s.interestRate}%</span></div>
+                        <div><span className="text-content-200 block">Deposit Date</span> <span className="font-semibold text-white">{formatDate(s.depositDate)}</span></div>
+                        <div><span className="text-content-200 block">Maturity Date</span> <span className="font-semibold text-white">{formatDate(s.maturityDate)}</span></div>
+                        {s.maturityAmount && s.maturityAmount > 0 && (
+                            <>
+                                <div className="col-span-2 my-2 border-t border-base-300"></div>
+                                <div><span className="text-content-200 block">Maturity Value</span><span className="font-semibold text-accent-success text-base">{formatCurrency(s.maturityAmount, primaryCurrency)}</span></div>
+                                <div><span className="text-content-200 block">Interest Earned</span><span className="font-semibold text-accent-success text-base">{formatCurrency(interestEarned, primaryCurrency)}</span></div>
+                            </>
+                        )}
+                    </div></div></Card>
+                )})}</div>
             ) : <div className="text-center py-16"><p className="text-content-200">{savings.length > 0 ? "No savings match search." : "No FDs or RDs found."}</p></div>}
             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingSaving ? 'Edit Savings' : 'Add Savings'}><SavingsForm onClose={closeModal} existingSaving={editingSaving}/></Modal>
         </div>

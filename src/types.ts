@@ -93,6 +93,7 @@ export interface SavingsInstrument {
     interestRate: number;
     depositDate: string; // ISO string
     maturityDate: string; // ISO string;
+    maturityAmount?: number;
 }
 
 export interface Goal {
