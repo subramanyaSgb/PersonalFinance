@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line
@@ -1316,7 +1317,16 @@ const TransactionCard: React.FC<{transaction: Transaction, onEdit: () => void, o
                 <div><span className="text-content-200">Category</span></div><div className="font-medium text-white text-right">{isTransfer ? 'Transfer' : category?.name || 'N/A'}</div>
                 <div><span className="text-content-200">Account</span></div><div className="font-medium text-white text-right">{account?.name || 'N/A'}{isTransfer && ` -> ${getAccountById(t.toAccountId!)?.name}`}</div>
                 <div><span className="text-content-200">Date</span></div><div className="font-medium text-white text-right">{formatDate(t.date)}</div>
-                {t.tags && t.tags.length > 0 && (<><div className="mt-1"><span className="text-content-200">Tags</span></div><div className="flex flex-wrap gap-1 justify-end max-w-full mt-1 col-start-2">{t.tags?.map(tag => (<span key={tag} className="px-1.5 py-0.5 text-xs rounded-full bg-base-100 text-content-100 font-medium">{tag}</span>))}</div></>)}
+                {t.tags && t.tags.length > 0 && (
+                  <>
+                    <div className="mt-1"><span className="text-content-200">Tags</span></div>
+                    <div className="flex flex-wrap gap-1 justify-end max-w-full mt-1">
+                      {t.tags.map(tag => (
+                        <span key={tag} className="px-1.5 py-0.5 text-xs rounded-full bg-base-100 text-content-100 font-medium">{tag}</span>
+                      ))}
+                    </div>
+                  </>
+                )}
             </div>
         </Card>
     );
