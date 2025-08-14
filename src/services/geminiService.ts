@@ -1,0 +1,283 @@
+
+
+import { GoogleGenAI, Type } from "@google/genai";
+import { Transaction, Category, TransactionType, Account, Asset, Subscription } from '../types';
+
+const API_KEY = import.meta.env.VITE_API_KEY;
+
+if (!API_KEY) {
+  console.warn("VITE_API_KEY environment variable not set. Gemini features will be disabled.");
+}
+
+const ai = new GoogleGenAI({ apiKey: API_KEY! });
+
+export const getFinancialInsights = async (
+  transactions: Transaction[],
+  accounts: Account[],
+  categories: Category[]
+): Promise<string> => {
+  if (!API_KEY) return "API Key not configured. Please set the VITE_API_KEY environment variable in your deployment settings.";
+  if (transactions.length === 0) return "No transaction data available to analyze.";
+
+  const simplifiedTransactions = transactions.map(t => ({
+    date: t.date,
+    description: t.description,
+    amount: t.amount,
+    type: t.type,
+    category: categories.find(c => c.id === t.categoryId)?.name || 'Uncategorized',
+    account: accounts.find(a => a.id === t.accountId)?.name || 'Unknown Account'
+  }));
+
+  const prompt = `
+    You are an expert financial advisor called FinanSage.
+    Analyze the following JSON data of a user's recent financial transactions and accounts.
+    Provide actionable, personalized, and encouraging insights.
+
+    Here is the user's data:
+    Accounts: ${JSON.stringify(accounts)}
+    Transactions: ${JSON.stringify(simplifiedTransactions.slice(-50))}
+
+    Based on this data, please do the following:
+    1.  Start with a brief, friendly overview of their financial situation.
+    2.  Identify the top 3-5 spending categories.
+    3.  Point out any potential areas for savings or positive spending habits.
+    4.  Offer 2-3 specific, actionable tips to improve their financial health. For example, suggest creating a budget for a high-spending category.
+    5.  Keep the tone positive and motivating. Do not be judgmental.
+    6.  Format your response in simple markdown. Use headings (#, ##), bullet points (*), and bold text (**) to make it easy to read.
+  `;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text || "Sorry, I couldn't generate insights at this moment.";
+  } catch (error) {
+    console.error("Error fetching financial insights:", error);
+    return "Sorry, I couldn't fetch your financial insights at the moment. Please try again later.";
+  }
+};
+
+
+export const suggestCategory = async (
+  description: string,
+  categories: Category[]
+): Promise<string | null> => {
+  if (!API_KEY) return null;
+
+  const expenseCategories = categories
+    .filter(c => c.type === TransactionType.EXPENSE)
+    .map(c => c.name);
+
+  const prompt = `
+    Based on the transaction description, which of the following categories is the best fit?
+    Description: "${description}"
+    Available Expense Categories: ${expenseCategories.join(', ')}
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            category: {
+              type: Type.STRING,
+              description: "The most appropriate category from the list.",
+              enum: expenseCategories,
+            },
+          },
+          required: ["category"],
+        },
+      },
+    });
+
+    const jsonText = response.text;
+    if (jsonText) {
+        try {
+            const result = JSON.parse(jsonText);
+            return result.category || null;
+        } catch(e) {
+            console.error("Failed to parse category suggestion JSON:", e);
+            return null;
+        }
+    }
+    return null;
+  } catch (error) {
+    console.error("Error suggesting category:", error);
+    return null;
+  }
+};
+
+export const fetchProductDetailsFromUrl = async (url: string): Promise<Partial<Asset> | null> => {
+    if (!API_KEY) return null;
+
+    const prompt = `
+        Given the URL of a product page, extract the following details.
+        URL: "${url}"
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        name: { type: Type.STRING, description: "The name of the product." },
+                        description: { type: Type.STRING, description: "A brief description of the product." },
+                        purchasePrice: { type: Type.NUMBER, description: "The price of the product. Extract only the number." },
+                        imageUrl: { type: Type.STRING, description: "The direct URL to the main product image." },
+                    },
+                    required: ["name", "purchasePrice", "imageUrl"],
+                },
+            },
+        });
+        
+        const jsonText = response.text;
+        if(jsonText){
+             try {
+                const result = JSON.parse(jsonText);
+                return {
+                    name: result.name,
+                    description: result.description,
+                    purchasePrice: result.purchasePrice,
+                    imageUrl: result.imageUrl,
+                    productUrl: url,
+                };
+             } catch(e) {
+                console.error("Failed to parse product details JSON:", e);
+                return null;
+             }
+        }
+        return null;
+
+    } catch (error) {
+        console.error("Error fetching product details:", error);
+        return null;
+    }
+};
+
+export const processReceiptImage = async (
+    base64Image: string,
+    mimeType: string
+): Promise<{ merchantName: string, totalAmount: number, transactionDate: string } | null> => {
+    if (!API_KEY) return null;
+
+    const imagePart = {
+        inlineData: {
+            data: base64Image,
+            mimeType,
+        },
+    };
+
+    const prompt = "Analyze this receipt image. Extract the merchant name, the final total amount, and the transaction date. Today is "+ new Date().toISOString().split('T')[0] +". If the year is not present on the receipt, assume the current year.";
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts: [imagePart, {text: prompt}] },
+            config: {
+                 responseMimeType: "application/json",
+                 responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        merchantName: { type: Type.STRING, description: "The name of the store or merchant." },
+                        totalAmount: { type: Type.NUMBER, description: "The final total amount paid." },
+                        transactionDate: { type: Type.STRING, description: "The date of the transaction in YYYY-MM-DD format." },
+                    },
+                    required: ["merchantName", "totalAmount", "transactionDate"],
+                 },
+            }
+        });
+        const jsonText = response.text;
+        if (jsonText) {
+             try {
+                return JSON.parse(jsonText);
+             } catch(e) {
+                console.error("Failed to parse receipt JSON:", e);
+                return null;
+             }
+        }
+        return null;
+    } catch (error) {
+        console.error("Error processing receipt:", error);
+        return null;
+    }
+};
+
+export const findSubscriptions = async (transactions: Transaction[], categories: Category[]): Promise<Partial<Subscription>[]> => {
+    if (!API_KEY || transactions.length < 5) return [];
+
+    const simplifiedTransactions = transactions
+        .filter(t => t.type === TransactionType.EXPENSE)
+        .slice(0, 200) // limit to recent 200 expenses to manage token usage
+        .map(t => ({
+            date: t.date.split('T')[0],
+            description: t.description,
+            amount: t.amount,
+        }));
+    
+    const expenseCategories = categories.filter(c => c.type === TransactionType.EXPENSE).map(c => c.name);
+
+    const prompt = `
+        Analyze the following list of financial transactions. Identify any recurring payments that are likely to be subscriptions (e.g., Netflix, Spotify, gym membership, insurance).
+        For each identified subscription, provide its name, a common recurring amount, its frequency (weekly, monthly, or yearly), and the most recent payment date you can find in the data.
+        Ignore one-off payments. Look for patterns in descriptions and amounts. Consolidate similar descriptions (e.g. 'AMZN PRIME' and 'Amazon Prime') into one subscription.
+        
+        Transaction Data:
+        ${JSON.stringify(simplifiedTransactions)}
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                systemInstruction: "You are an AI assistant specialized in finding recurring payments from transaction data. You must only output a valid JSON object matching the provided schema. If no subscriptions are found, return an empty array.",
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                       subscriptions: {
+                            type: Type.ARRAY,
+                            description: "A list of identified subscriptions.",
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    name: { type: Type.STRING, description: "The name of the service (e.g., Netflix, Spotify)." },
+                                    amount: { type: Type.NUMBER, description: "The most common recurring amount of the subscription." },
+                                    frequency: { type: Type.STRING, enum: ['weekly', 'monthly', 'yearly'], description: "The payment frequency." },
+                                    lastPaymentDate: { type: Type.STRING, description: "The date of the most recent payment in YYYY-MM-DD format." },
+                                    categorySuggestion: { type: Type.STRING, description: `Suggest the most likely category from this list: ${expenseCategories.join(', ')}`}
+                                },
+                                required: ['name', 'amount', 'frequency', 'lastPaymentDate', 'categorySuggestion']
+                            }
+                       }
+                    },
+                    required: ['subscriptions']
+                }
+            },
+        });
+
+        const jsonText = response.text;
+        if (jsonText) {
+            try {
+                const result = JSON.parse(jsonText);
+                return result.subscriptions || [];
+            } catch(e) {
+                console.error("Failed to parse subscriptions JSON:", e);
+                return [];
+            }
+        }
+        return [];
+    } catch (error) {
+        console.error("Error finding subscriptions:", error);
+        return [];
+    }
+};
