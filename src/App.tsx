@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line
@@ -399,6 +400,28 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
           <button onClick={onClose} className="text-content-200 hover:text-white text-2xl leading-none">&times;</button>
         </div>
         <div className="p-5 max-h-[80vh] overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+};
+
+const BottomSheet: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end animate-fade-in md:hidden" onClick={onClose}>
+      <div 
+        className="bg-base-200 w-full rounded-t-2xl shadow-2xl animate-slide-up-sheet" 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-full flex justify-center pt-3 pb-2">
+          <div className="w-12 h-1.5 bg-base-300 rounded-full"></div>
+        </div>
+        <div className="flex justify-between items-center px-4 pb-2 border-b border-base-300">
+          <h3 className="text-xl font-bold text-white">{title}</h3>
+          <button onClick={onClose} className="text-content-200 hover:text-white text-3xl leading-none w-8 h-8 flex items-center justify-center">&times;</button>
+        </div>
+        <div className="p-4 max-h-[60vh] overflow-y-auto">{children}</div>
       </div>
     </div>
   );
@@ -2291,14 +2314,14 @@ export default function App() {
       <Modal isOpen={isScannerModalOpen} onClose={closeTxModal} title="Scan Receipt">
         <ReceiptScannerModal onScanComplete={handleScanComplete} />
       </Modal>
-      <Modal isOpen={isMoreSheetOpen} onClose={() => setIsMoreSheetOpen(false)} title="More Sections">
+      <BottomSheet isOpen={isMoreSheetOpen} onClose={() => setIsMoreSheetOpen(false)} title="More Sections">
           <div className="space-y-2">
             {allNavItems.map(item => <NavItem key={item.view} {...item} />)}
              <div className="pt-2 mt-2 border-t border-base-300">
                 <NavItem view="SETTINGS" label="Settings" icon={ICONS.settings} />
             </div>
           </div>
-      </Modal>
+      </BottomSheet>
     </div>
   );
 }
