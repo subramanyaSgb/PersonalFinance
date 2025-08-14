@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line
@@ -624,21 +621,21 @@ const DashboardView: React.FC = () => {
   const recentTransactions = useMemo(() => [...transactions].slice(0, 5), [transactions]);
 
   const spendingData = useMemo(() => {
-    const spendingByCategory = transactions
-      .filter(t => t.type === TransactionType.EXPENSE)
-      .reduce((acc, t) => {
+    const spendingByCategory: { [key: string]: { id: string; name: string; value: number } } = {};
+    
+    transactions
+      .filter(t => t.type === TransactionType.EXPENSE && t.categoryId)
+      .forEach(t => {
         const category = getCategoryById(t.categoryId);
         if (category) {
-            if (!acc[category.id]) {
-                acc[category.id] = { id: category.id, name: category.name, value: 0 };
+            if (!spendingByCategory[category.id]) {
+                spendingByCategory[category.id] = { id: category.id, name: category.name, value: 0 };
             }
-            acc[category.id].value += t.amount;
+            spendingByCategory[category.id].value += t.amount;
         }
-        return acc;
-      }, {} as { [key: string]: { id: string; name: string; value: number } });
+      });
       
-    return Object.values(spendingByCategory)
-      .sort((a, b) => b.value - a.value);
+    return Object.values(spendingByCategory).sort((a, b) => b.value - a.value);
   }, [transactions, getCategoryById]);
   
   const budgetStatus = useMemo(() => {
@@ -771,7 +768,7 @@ const DashboardView: React.FC = () => {
                               <span className="p-2 bg-base-100 rounded-full text-content-200">{ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}</span>
                               <div>
                                   <p className="font-semibold text-white">{t.description}</p>
-                                  <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {isTransfer ? `${account?.name} → ${toAccount?.name}` : category?.name}</p>
+                                  <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {isTransfer ? `${account?.name || 'N/A'} → ${toAccount?.name || 'N/A'}` : category?.name}</p>
                               </div>
                           </div>
                           <p className={classNames("font-bold text-base", 
@@ -790,7 +787,8 @@ const DashboardView: React.FC = () => {
        <Card>
           <h4 className="text-lg font-bold text-white mb-4">Budget Status</h4>
           <div className="space-y-4">
-              {budgetStatus.length > 0 ? budgetStatus.map(b => (
+            {budgetStatus.length > 0 ? (
+              budgetStatus.map(b => (
                   <div key={b.id}>
                       <div className="flex justify-between mb-1 text-sm">
                           <span className="font-semibold text-white">{b.categoryName}</span>
@@ -803,7 +801,10 @@ const DashboardView: React.FC = () => {
                           ></div>
                       </div>
                   </div>
-              )) : <p className="text-content-200 text-center py-10">No budgets set. Go to the Budgets page to create one.</p>}
+              ))
+            ) : (
+              <p className="text-content-200 text-center py-10">No budgets set. Go to the Budgets page to create one.</p>
+            )}
           </div>
        </Card>
     </div>
