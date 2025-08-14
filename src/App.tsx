@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line
@@ -606,12 +607,12 @@ const DashboardView: React.FC = () => {
         const category = getCategoryById(t.categoryId);
         if (category) {
             if (!acc[category.id]) {
-                acc[category.id] = { name: category.name, value: 0 };
+                acc[category.id] = { id: category.id, name: category.name, value: 0 };
             }
             acc[category.id].value += t.amount;
         }
         return acc;
-      }, {} as { [key: string]: { name: string; value: number } });
+      }, {} as { [key: string]: { id: string; name: string; value: number } });
       
     return Object.values(spendingByCategory)
       .sort((a, b) => b.value - a.value);
@@ -724,7 +725,7 @@ const DashboardView: React.FC = () => {
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie data={spendingData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={80} fill="#8884d8" paddingAngle={5} labelLine={false}>
-                  {spendingData.map((entry, index) => <Cell key={`cell-${entry.name}`} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke={PIE_COLORS[index % PIE_COLORS.length]} />)}
+                  {spendingData.map((entry, index) => <Cell key={`cell-${entry.id}`} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke={PIE_COLORS[index % PIE_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', border: '1px solid #2A2A2A', borderRadius: '0.75rem', backdropFilter: 'blur(4px)' }} formatter={(value: number) => formatCurrency(value, primaryCurrency)} />
                 <Legend iconSize={10} wrapperStyle={{fontSize: '12px'}} />
@@ -740,13 +741,14 @@ const DashboardView: React.FC = () => {
                   const isIncome = t.type === TransactionType.INCOME;
                   const isTransfer = t.type === TransactionType.TRANSFER;
                   const account = getAccountById(t.accountId);
+                  const toAccount = isTransfer ? getAccountById(t.toAccountId!) : undefined;
                   return (
                       <div key={t.id} className="flex justify-between items-center p-3 rounded-xl hover:bg-base-300/30 animate-list-item-in" style={{ animationDelay: `${index * 50}ms` }}>
                           <div className="flex items-center gap-4">
                               <span className="p-2 bg-base-100 rounded-full text-content-200">{ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}</span>
                               <div>
                                   <p className="font-semibold text-white">{t.description}</p>
-                                  <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {isTransfer ? "Transfer" : category?.name}</p>
+                                  <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {isTransfer ? `${account?.name} → ${toAccount?.name}` : category?.name}</p>
                               </div>
                           </div>
                           <p className={classNames("font-bold text-base", 
@@ -765,7 +767,7 @@ const DashboardView: React.FC = () => {
        <Card>
           <h4 className="text-lg font-bold text-white mb-4">Budget Status</h4>
           <div className="space-y-4">
-              {budgetStatus.map(b => (
+              {budgetStatus.length > 0 ? budgetStatus.map(b => (
                   <div key={b.id}>
                       <div className="flex justify-between mb-1 text-sm">
                           <span className="font-semibold text-white">{b.categoryName}</span>
