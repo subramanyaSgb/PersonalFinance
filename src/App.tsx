@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line
@@ -606,13 +604,15 @@ const DashboardView: React.FC = () => {
       .reduce((acc, t) => {
         const category = getCategoryById(t.categoryId);
         if (category) {
-          acc[category.name] = (acc[category.name] || 0) + t.amount;
+            if (!acc[category.id]) {
+                acc[category.id] = { name: category.name, value: 0 };
+            }
+            acc[category.id].value += t.amount;
         }
         return acc;
-      }, {} as { [key: string]: number });
+      }, {} as { [key: string]: { name: string; value: number } });
       
-    return Object.entries(spendingByCategory)
-      .map(([name, value]) => ({ name, value }))
+    return Object.values(spendingByCategory)
       .sort((a, b) => b.value - a.value);
   }, [transactions, getCategoryById]);
   
@@ -627,11 +627,12 @@ const DashboardView: React.FC = () => {
     return budgets.map(b => {
       const category = getCategoryById(b.categoryId);
       const spent = monthlyExpenses[b.categoryId] || 0;
+      const progress = b.amount > 0 ? Math.min((spent / b.amount) * 100, 100) : 0;
       return {
         ...b,
         categoryName: category?.name || 'Unknown',
         spent,
-        progress: Math.min((spent / b.amount) * 100, 100)
+        progress
       };
     }).sort((a,b) => b.progress - a.progress);
   }, [transactions, budgets, getCategoryById]);
@@ -722,7 +723,7 @@ const DashboardView: React.FC = () => {
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie data={spendingData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={80} fill="#8884d8" paddingAngle={5} labelLine={false}>
-                  {spendingData.map((_, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke={PIE_COLORS[index % PIE_COLORS.length]} />)}
+                  {spendingData.map((entry, index) => <Cell key={`cell-${entry.name}`} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke={PIE_COLORS[index % PIE_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', border: '1px solid #2A2A2A', borderRadius: '0.75rem', backdropFilter: 'blur(4px)' }} formatter={(value: number) => formatCurrency(value, primaryCurrency)} />
                 <Legend iconSize={10} wrapperStyle={{fontSize: '12px'}} />
@@ -736,18 +737,22 @@ const DashboardView: React.FC = () => {
               {recentTransactions.length > 0 ? recentTransactions.map((t, index) => {
                   const category = getCategoryById(t.categoryId);
                   const isIncome = t.type === TransactionType.INCOME;
+                  const isTransfer = t.type === TransactionType.TRANSFER;
                   const account = getAccountById(t.accountId);
                   return (
                       <div key={t.id} className="flex justify-between items-center p-3 rounded-xl hover:bg-base-300/30 animate-list-item-in" style={{ animationDelay: `${index * 50}ms` }}>
                           <div className="flex items-center gap-4">
-                              <span className="p-2 bg-base-100 rounded-full text-content-200">{ICONS[category?.icon || 'misc']}</span>
+                              <span className="p-2 bg-base-100 rounded-full text-content-200">{ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}</span>
                               <div>
                                   <p className="font-semibold text-white">{t.description}</p>
-                                  <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {category?.name}</p>
+                                  <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {isTransfer ? "Transfer" : category?.name}</p>
                               </div>
                           </div>
-                          <p className={classNames("font-bold text-base", isIncome ? 'text-accent-success' : 'text-accent-error')}>
-                              {isIncome ? '+' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}
+                          <p className={classNames("font-bold text-base", 
+                              isIncome ? 'text-accent-success' : 
+                              isTransfer ? 'text-content-100' : 'text-accent-error'
+                          )}>
+                              {isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}
                           </p>
                       </div>
                   )
@@ -759,7 +764,7 @@ const DashboardView: React.FC = () => {
        <Card>
           <h4 className="text-lg font-bold text-white mb-4">Budget Status</h4>
           <div className="space-y-4">
-              {budgetStatus.length > 0 ? budgetStatus.map(b => (
+              {budgetStatus.map(b => (
                   <div key={b.id}>
                       <div className="flex justify-between mb-1 text-sm">
                           <span className="font-semibold text-white">{b.categoryName}</span>
