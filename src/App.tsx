@@ -1061,9 +1061,8 @@ const TransactionForm: React.FC<{onClose: () => void; existingTransaction?: Tran
 };
 
 const ReceiptScannerModal: React.FC<{
-    onClose: () => void;
     onScanComplete: (data: Partial<Transaction>) => void;
-}> = ({ onClose, onScanComplete }) => {
+}> = ({ onScanComplete }) => {
     const [image, setImage] = useState<{base64: string; file: File} | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -2174,7 +2173,7 @@ export default function App() {
         <TransactionForm onClose={closeTxModal} existingTransaction={editingTransaction} prefilledData={prefilledTxData} />
       </Modal>
       <Modal isOpen={isScannerModalOpen} onClose={closeTxModal} title="Scan Receipt">
-        <ReceiptScannerModal onClose={closeTxModal} onScanComplete={handleScanComplete} />
+        <ReceiptScannerModal onScanComplete={handleScanComplete} />
       </Modal>
       <Modal isOpen={isMoreSheetOpen} onClose={() => setIsMoreSheetOpen(false)} title="More Sections">
           <div className="space-y-2">
