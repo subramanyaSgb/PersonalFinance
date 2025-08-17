@@ -1,5 +1,5 @@
 import React from 'react';
-import { Category, Currency, TransactionType, AssetCategory } from './types';
+import { Category, Currency, TransactionType, AssetCategory, View } from './types';
 
 export const CURRENCIES: Currency[] = [
     { code: 'USD', name: 'US Dollar', symbol: '$' },
@@ -109,3 +109,27 @@ export const ICONS: { [key: string]: React.ReactNode } = {
     'chevron-left': <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>,
     'chevron-right': <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>,
 };
+
+export interface NavItemDef {
+  view: View;
+  label: string;
+  icon: React.ReactNode;
+}
+
+export const mainNavItems: NavItemDef[] = [
+    { view: 'DASHBOARD', label: 'Dashboard', icon: ICONS.dashboard },
+    { view: 'ACCOUNTS', label: 'Accounts', icon: ICONS.accounts },
+    { view: 'TRANSACTIONS', label: 'Transactions', icon: ICONS.transactions },
+    { view: 'INVESTMENTS', label: 'Investments', icon: ICONS.investments },
+    { view: 'SAVINGS', label: 'Savings', icon: ICONS.savings },
+    { view: 'ASSETS', label: 'Assets', icon: ICONS.assets },
+    { view: 'SUBSCRIPTIONS', label: 'Subscriptions', icon: ICONS.subscriptions },
+];
+
+export const moreNavItems: NavItemDef[] = [
+    { view: 'BUDGETS', label: 'Budgets', icon: ICONS.budgets },
+    { view: 'GOALS', label: 'Goals', icon: ICONS.goals },
+    { view: 'INSIGHTS', label: 'AI Insights', icon: ICONS.insights },
+];
+
+export const allNavItems = [...mainNavItems, ...moreNavItems];

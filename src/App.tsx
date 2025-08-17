@@ -1,8 +1,9 @@
 
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry } from './types';
-import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES } from './constants';
+import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, NavItemDef } from './constants';
 import { getFinancialInsights, suggestCategory, fetchProductDetailsFromUrl, processReceiptImage, findSubscriptions } from './services/geminiService';
 
 // UTILITY FUNCTIONS
@@ -93,6 +94,8 @@ interface AppContextType {
   netWorthHistory: NetWorthHistoryEntry[];
   primaryCurrency: string;
   setPrimaryCurrency: React.Dispatch<React.SetStateAction<string>>;
+  bottomNavViews: View[];
+  setBottomNavViews: React.Dispatch<React.SetStateAction<View[]>>;
   getCategoryById: (id: string) => Category | undefined;
   getAccountById: (id: string) => Account | undefined;
   getAssetCategoryById: (id: string) => AssetCategory | undefined;
@@ -138,6 +141,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [subscriptions, setSubscriptions] = useLocalStorage<Subscription[]>('finansage_subscriptions', []);
   const [netWorthHistory, setNetWorthHistory] = useLocalStorage<NetWorthHistoryEntry[]>('finansage_netWorthHistory', []);
   const [primaryCurrency, setPrimaryCurrency] = useLocalStorage<string>('finansage_primaryCurrency', 'INR');
+  const [bottomNavViews, setBottomNavViews] = useLocalStorage<View[]>('finansage_bottomNavViews', ['DASHBOARD', 'TRANSACTIONS', 'ACCOUNTS', 'ASSETS']);
 
   useEffect(() => {
     if (categories.length === 0) {
@@ -329,6 +333,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     subscriptions, setSubscriptions,
     netWorthHistory,
     primaryCurrency, setPrimaryCurrency,
+    bottomNavViews, setBottomNavViews,
     getCategoryById, getAccountById, getAssetCategoryById,
     addTransaction, updateTransaction, deleteTransaction,
     addAccount, updateAccount, deleteAccount,
@@ -1653,7 +1658,7 @@ const GroupedInvestmentCard: React.FC<{
         <Card className="p-0">
             <div className="p-5">
                 <div onClick={() => setIsExpanded(p => !p)} className="flex justify-between items-start gap-2 cursor-pointer">
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                         <h3 className="text-lg font-bold text-white truncate pr-2" title={summary.name}>{summary.name}</h3>
                         <span className="text-xs bg-base-300 text-content-100 px-1.5 py-0.5 rounded">{summary.type}</span>
                     </div>
@@ -2285,6 +2290,53 @@ const CategoryManager: React.FC = () => {
     )
 }
 
+const BottomNavCustomizer: React.FC = () => {
+    const { bottomNavViews, setBottomNavViews } = useFinance();
+
+    const handleToggle = (view: View) => {
+        const isSelected = bottomNavViews.includes(view);
+        if (isSelected) {
+            setBottomNavViews(prev => prev.filter(v => v !== view));
+        } else {
+            if (bottomNavViews.length < 4) {
+                setBottomNavViews(prev => [...prev, view]);
+            } else {
+                alert("You can select a maximum of 4 shortcuts for the bottom bar.");
+            }
+        }
+    };
+
+    return (
+        <Card>
+            <h3 className="text-lg font-bold text-white mb-2">Customize Bottom Navigation</h3>
+            <p className="text-sm text-content-200 mb-4">Select up to 4 views to show as shortcuts in the bottom navigation bar on mobile.</p>
+            <div className="space-y-2">
+                {allNavItems.map(item => {
+                    const isSelected = bottomNavViews.includes(item.view);
+                    return (
+                        <div 
+                            key={item.view} 
+                            onClick={() => handleToggle(item.view)}
+                            className="flex items-center justify-between p-3 bg-base-100 rounded-lg cursor-pointer hover:bg-base-300/50"
+                        >
+                            <div className="flex items-center gap-3">
+                                <span className={classNames("transition-colors", isSelected ? "text-brand-gradient-to" : "text-content-200")}>{item.icon}</span>
+                                <span className={classNames("font-semibold transition-colors", isSelected ? "text-white" : "text-content-100")}>{item.label}</span>
+                            </div>
+                            <div className={classNames(
+                                "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+                                isSelected ? "bg-brand-primary border-brand-primary" : "border-base-300"
+                            )}>
+                                {isSelected && <svg className="w-4 h-4 text-black" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+        </Card>
+    )
+}
+
 const SettingsView: React.FC = () => {
   const { primaryCurrency, setPrimaryCurrency } = useFinance();
   return (
@@ -2302,6 +2354,7 @@ const SettingsView: React.FC = () => {
                 </div>
             </div>
         </Card>
+        <BottomNavCustomizer />
         <CategoryManager />
     </div>
   );
@@ -2317,19 +2370,20 @@ const BottomNavBar: React.FC<{
     setActiveView: (view: View) => void;
     onMoreClick: () => void;
 }> = ({ activeView, setActiveView, onMoreClick }) => {
-    const navItems = [
-        { view: 'DASHBOARD', label: 'Dashboard', icon: ICONS.dashboard },
-        { view: 'TRANSACTIONS', label: 'Transactions', icon: ICONS.transactions },
-        { view: 'ACCOUNTS', label: 'Accounts', icon: ICONS.accounts },
-        { view: 'ASSETS', label: 'Assets', icon: ICONS.assets },
-    ];
+    const { bottomNavViews } = useFinance();
+
+    const navItems = useMemo(() => {
+        return bottomNavViews
+            .map(viewId => allNavItems.find(item => item.view === viewId))
+            .filter((item): item is NavItemDef => !!item);
+    }, [bottomNavViews]);
     
     return (
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-base-200/50 backdrop-blur-lg border-t border-base-300 flex justify-around items-center z-40 h-20">
             {navItems.map(item => (
                 <button
                     key={item.view}
-                    onClick={() => setActiveView(item.view as View)}
+                    onClick={() => setActiveView(item.view)}
                     className={classNames(
                         "flex flex-col items-center justify-center w-full h-full text-xs transition-colors pt-1",
                         activeView === item.view ? 'text-white' : 'text-content-200 hover:text-white'
@@ -2354,6 +2408,7 @@ const BottomNavBar: React.FC<{
 export default function App() {
   const [activeView, setActiveView] = useState<View>('DASHBOARD');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { bottomNavViews } = useFinance();
 
   // Global modals state
   const [isAddEditTxModalOpen, setIsAddEditTxModalOpen] = useState(false);
@@ -2421,29 +2476,8 @@ export default function App() {
       </header>
   );
   
-  interface NavItemDef {
-    view: View;
-    label: string;
-    icon: React.ReactNode;
-  }
-
-  const mainNavItems: NavItemDef[] = [
-      { view: 'DASHBOARD', label: 'Dashboard', icon: ICONS.dashboard },
-      { view: 'ACCOUNTS', label: 'Accounts', icon: ICONS.accounts },
-      { view: 'TRANSACTIONS', label: 'Transactions', icon: ICONS.transactions },
-      { view: 'INVESTMENTS', label: 'Investments', icon: ICONS.investments },
-      { view: 'SAVINGS', label: 'Savings', icon: ICONS.savings },
-      { view: 'ASSETS', label: 'Assets', icon: ICONS.assets },
-      { view: 'SUBSCRIPTIONS', label: 'Subscriptions', icon: ICONS.subscriptions },
-  ];
-  
-  const moreNavItems: NavItemDef[] = [
-      { view: 'BUDGETS', label: 'Budgets', icon: ICONS.budgets },
-      { view: 'GOALS', label: 'Goals', icon: ICONS.goals },
-      { view: 'INSIGHTS', label: 'AI Insights', icon: ICONS.insights },
-  ];
-  
-  const allNavItems = [...mainNavItems, ...moreNavItems];
+  const mainSidebarItems = useMemo(() => allNavItems.slice(0, 7), []);
+  const moreSidebarItems = useMemo(() => allNavItems.slice(7), []);
 
   return (
     <div className="flex h-screen bg-base-100">
@@ -2451,9 +2485,9 @@ export default function App() {
       <aside className={classNames("fixed inset-y-0 left-0 w-72 bg-base-200 p-6 flex flex-col z-50 transform transition-transform duration-300 ease-in-out", "md:relative md:translate-x-0", isSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex items-center space-x-3 mb-10 px-2">{ICONS.logo}<span className="text-2xl font-bold text-white">FinanSage</span></div>
         <nav className="space-y-2 flex-grow overflow-y-auto">
-            {mainNavItems.map(item => <NavItem key={item.view} {...item} />)}
+            {mainSidebarItems.map(item => <NavItem key={item.view} {...item} />)}
             <div className="pt-4 mt-2 border-t border-base-300">
-                {moreNavItems.map(item => <NavItem key={item.view} {...item} />)}
+                {moreSidebarItems.map(item => <NavItem key={item.view} {...item} />)}
             </div>
         </nav>
         <div className="mt-auto"><NavItem view="SETTINGS" label="Settings" icon={ICONS.settings} /></div>
@@ -2477,7 +2511,7 @@ export default function App() {
       </Modal>
       <BottomSheet isOpen={isMoreSheetOpen} onClose={() => setIsMoreSheetOpen(false)} title="More Sections">
           <div className="space-y-2">
-            {allNavItems.map(item => <NavItem key={item.view} {...item} />)}
+            {allNavItems.filter(item => !bottomNavViews.includes(item.view)).map(item => <NavItem key={item.view} {...item} />)}
              <div className="pt-2 mt-2 border-t border-base-300">
                 <NavItem view="SETTINGS" label="Settings" icon={ICONS.settings} />
             </div>
