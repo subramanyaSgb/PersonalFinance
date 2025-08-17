@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard } from './types';
 import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, NavItemDef, dashboardCardDefs } from './constants';
 import { getFinancialInsights, suggestCategory, fetchProductDetailsFromUrl, processReceiptImage, findSubscriptions, generateFinancialReport } from './services/geminiService';
@@ -1256,6 +1255,54 @@ const ReceiptScannerModal: React.FC<{
     );
 };
 
+const TransactionCard: React.FC<{
+  transaction: Transaction;
+  onEdit: () => void;
+  onDelete: () => void;
+  style?: React.CSSProperties;
+}> = ({ transaction, onEdit, onDelete, style }) => {
+    const { getCategoryById, getAccountById, primaryCurrency } = useFinance();
+    const category = getCategoryById(transaction.categoryId);
+    const account = getAccountById(transaction.accountId);
+    const toAccount = transaction.toAccountId ? getAccountById(transaction.toAccountId) : null;
+    const isIncome = transaction.type === TransactionType.INCOME;
+    const isTransfer = transaction.type === TransactionType.TRANSFER;
+
+    const handleDelete = () => {
+        if(window.confirm(`Delete transaction: ${transaction.description}?`)) {
+            onDelete();
+        }
+    };
+
+    return (
+        <Card className="p-0 animate-list-item-in" style={style}>
+            <div className="flex justify-between items-center p-4">
+                <div className="flex items-center gap-4 min-w-0">
+                    <span className="p-2.5 bg-base-100 rounded-full text-content-200 flex-shrink-0">
+                        {ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-white truncate" title={transaction.description}>{transaction.description}</p>
+                        <p className="text-xs text-content-200 truncate">{formatDate(transaction.date)} &bull; {isTransfer ? `${account?.name} → ${toAccount?.name}` : account?.name}</p>
+                    </div>
+                </div>
+                <p className={classNames("font-bold text-lg whitespace-nowrap pl-2", isIncome ? 'text-accent-success' : isTransfer ? 'text-content-100' : 'text-accent-error')}>
+                    {isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(transaction.amount, account?.currency || primaryCurrency)}
+                </p>
+            </div>
+            {transaction.notes && (
+                <div className="px-4 pb-3 border-b border-base-300">
+                    <p className="text-sm text-content-200 italic">"{transaction.notes}"</p>
+                </div>
+            )}
+            <div className="flex justify-end gap-2 p-2 bg-base-300/20 rounded-b-2xl">
+                <Button variant="secondary" className="px-3 py-1 text-sm" onClick={onEdit}>{ICONS.edit} Edit</Button>
+                <Button variant="danger" className="px-3 py-1 text-sm" onClick={handleDelete}>{ICONS.trash} Delete</Button>
+            </div>
+        </Card>
+    );
+};
+
 interface TransactionsViewProps {
   openAddEditModal: (transaction?: Transaction) => void;
 }
@@ -1402,1364 +1449,174 @@ const TransactionsView: React.FC<TransactionsViewProps> = ({ openAddEditModal })
     );
 };
 
-const TransactionCard: React.FC<{transaction: Transaction, onEdit: () => void, onDelete: () => void, style?: React.CSSProperties}> = ({transaction: t, onEdit, onDelete, style}) => {
-    const { getCategoryById, getAccountById, primaryCurrency } = useFinance();
-    const category = getCategoryById(t.categoryId);
-    const account = getAccountById(t.accountId);
-    const isIncome = t.type === TransactionType.INCOME;
-    const isTransfer = t.type === TransactionType.TRANSFER;
-
-    return (
-        <Card key={t.id} className="p-4 animate-list-item-in" style={style}>
-            <div className="flex justify-between items-start gap-3">
-                <div className="flex-1 pr-2">
-                    <p className="font-bold text-white break-words flex items-center gap-2">{t.receiptImage && ICONS.scan} {t.description}</p>
-                    <p className={classNames("font-bold text-xl mt-1", isIncome ? 'text-accent-success' : isTransfer ? 'text-content-100' : 'text-accent-error')}>
-                        {isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}
-                    </p>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                    <button className="p-2 rounded-full hover:bg-base-300" onClick={onEdit}>{ICONS.edit}</button>
-                    <button className="p-2 rounded-full hover:bg-base-300" onClick={() => window.confirm(`Delete transaction: ${t.description}?`) && onDelete()}>{ICONS.trash}</button>
-                </div>
-            </div>
-            {t.notes && <p className="text-sm text-content-200 mt-2 pt-2 border-t border-base-300">{t.notes}</p>}
-            <div className="mt-3 border-t border-base-300 pt-3 text-sm grid grid-cols-2 gap-x-4 gap-y-1">
-                <div><span className="text-content-200">Category</span></div><div className="font-medium text-white text-right">{isTransfer ? 'Transfer' : category?.name || 'N/A'}</div>
-                <div><span className="text-content-200">Account</span></div><div className="font-medium text-white text-right">{account?.name || 'N/A'}{isTransfer && t.toAccountId && ` -> ${getAccountById(t.toAccountId)?.name}`}</div>
-                <div><span className="text-content-200">Date</span></div><div className="font-medium text-white text-right">{formatDate(t.date)}</div>
-                {Array.isArray(t.tags) && t.tags.length > 0 && (
-                    <React.Fragment>
-                        <div className="mt-1"><span className="text-content-200">Tags</span></div>
-                        <div className="flex flex-wrap gap-1 justify-end max-w-full mt-1">
-                            {t.tags.map(tag => (
-                                <span key={tag} className="px-1.5 py-0.5 text-xs rounded-full bg-base-100 text-content-100 font-medium">{tag}</span>
-                            ))}
-                        </div>
-                    </React.Fragment>
-                )}
-            </div>
-        </Card>
-    );
-}
-
-const BudgetsView: React.FC = () => {
-    const { budgets, setBudgets, categories, transactions, getCategoryById, primaryCurrency } = useFinance();
-    const [newBudget, setNewBudget] = useState<{ categoryId: string; amount: string }>({ categoryId: '', amount: '' });
-    
-    const handleAddBudget = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (newBudget.categoryId && newBudget.amount) {
-            if (budgets.some(b => b.categoryId === newBudget.categoryId)) return alert("A budget for this category already exists.");
-            setBudgets(prev => [...prev, { id: generateId(), categoryId: newBudget.categoryId, amount: parseFloat(newBudget.amount), period: 'monthly' }]);
-            setNewBudget({ categoryId: '', amount: '' });
-        }
-    };
-    
-    const budgetStatus = useMemo(() => {
-        const monthlyExpenses = transactions.filter(t => t.type === TransactionType.EXPENSE && new Date(t.date).getMonth() === new Date().getMonth()).reduce((acc, t) => {
-            acc[t.categoryId] = (acc[t.categoryId] || 0) + t.amount;
-            return acc;
-        }, {} as { [key: string]: number });
-        return budgets.map(b => {
-          const spent = monthlyExpenses[b.categoryId] || 0;
-          return { ...b, categoryName: getCategoryById(b.categoryId)?.name || 'Unknown', spent, remaining: b.amount - spent, progress: Math.min((spent / b.amount) * 100, 100) };
-        }).sort((a,b) => b.progress - a.progress);
-      }, [transactions, budgets, getCategoryById]);
-
-    return (
-        <div className="animate-fade-in">
-            <h2 className="text-3xl font-bold text-white mb-8">Budgets</h2>
-            <Card className="mb-8"><h3 className="text-lg font-bold text-white mb-4">Add New Budget</h3>
-                <form onSubmit={handleAddBudget} className="flex flex-col sm:flex-row gap-3">
-                    <select value={newBudget.categoryId} onChange={e => setNewBudget({...newBudget, categoryId: e.target.value})} className="flex-grow bg-base-100 p-3 rounded-lg text-white border border-base-300"><option value="">Select Category</option>{categories.filter(c => c.type === TransactionType.EXPENSE && c.name !== 'Goal Contributions').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-                    <input type="number" placeholder="Monthly Amount" value={newBudget.amount} onChange={e => setNewBudget({...newBudget, amount: e.target.value})} className="bg-base-100 p-3 rounded-lg text-white border border-base-300" />
-                    <Button type="submit">{ICONS.plus}Add Budget</Button>
-                </form>
-            </Card>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {budgetStatus.map(b => (
-                    <Card key={b.id}>
-                        <div className="flex justify-between items-center"><h4 className="text-lg font-bold text-white">{b.categoryName}</h4><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Are you sure you want to delete the budget for ${b.categoryName}?`) && setBudgets(p => p.filter(budget => budget.id !== b.id))}>{ICONS.trash}</Button></div>
-                        <div className="mt-4">
-                            <div className="w-full bg-base-300 rounded-full h-3"><div className={classNames("h-3 rounded-full text-[10px] text-white text-center flex items-center justify-center", b.progress > 85 ? 'bg-accent-error' : b.progress > 60 ? 'bg-accent-warning' : 'bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to')} style={{ width: `${b.progress}%` }}></div></div>
-                            <div className="mt-2 text-sm text-content-200"><span>Spent: {formatCurrency(b.spent, primaryCurrency)}</span><span className="mx-2">|</span><span>Remaining: <span className={b.remaining < 0 ? 'text-accent-error' : 'text-accent-success'}>{formatCurrency(b.remaining, primaryCurrency)}</span></span></div>
-                        </div>
-                    </Card>
-                ))}
-                {budgetStatus.length === 0 && <p className="text-center p-8 text-content-200">No budgets created yet.</p>}
-            </div>
-        </div>
-    );
-};
-
-const GoalForm: React.FC<{onClose: () => void; existingGoal?: Goal}> = ({onClose, existingGoal}) => {
-    const { addGoal, updateGoal } = useFinance();
-    const [goal, setGoal] = useState<Partial<Goal>>(existingGoal || { name: '', targetAmount: 0 });
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setGoal(p => ({...p, [e.target.name]: e.target.name === 'targetAmount' ? parseFloat(e.target.value) : e.target.value }));
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const { name, targetAmount, targetDate } = goal;
-        if (!name || !targetAmount || !targetDate) return alert("Please fill all fields.");
-        if (existingGoal) updateGoal({ ...existingGoal, name, targetAmount, targetDate });
-        else addGoal({ name, targetAmount, targetDate });
-        onClose();
-    };
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="text" name="name" placeholder="Goal Name (e.g., New Car)" value={goal.name || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="0.01" name="targetAmount" placeholder="Target Amount" value={goal.targetAmount || ''} onChange={handleChange} required className={inputClasses} />
-            <div>
-                <label className="text-sm text-content-200">Target Date</label>
-                <CustomDatePicker value={goal.targetDate || ''} onChange={(date) => setGoal(p => ({...p, targetDate: date}))} />
-            </div>
-            <div className="flex justify-end gap-3 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit">{existingGoal ? 'Update' : 'Create'} Goal</Button></div>
-        </form>
-    );
-};
-
-const ContributeForm: React.FC<{onClose: () => void; goal: Goal}> = ({onClose, goal}) => {
-    const { accounts, makeGoalContribution, primaryCurrency } = useFinance();
-    const [amount, setAmount] = useState(0);
-    const [fromAccountId, setFromAccountId] = useState('');
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (amount <= 0 || !fromAccountId) return alert("Please enter a valid amount and select an account.");
-        const account = accounts.find(a => a.id === fromAccountId);
-        if (account && account.balance < amount && !window.confirm("This contribution exceeds the account balance. Proceed anyway?")) return;
-        makeGoalContribution(goal.id, amount, fromAccountId);
-        onClose();
-    };
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div><h4 className="text-lg font-bold text-white">{goal.name}</h4><p className="text-sm text-content-200">Progress: {formatCurrency(goal.currentAmount, primaryCurrency)} / {formatCurrency(goal.targetAmount, primaryCurrency)}</p></div>
-            <input type="number" step="0.01" placeholder="Contribution Amount" value={amount || ''} onChange={e => setAmount(parseFloat(e.target.value))} required className={inputClasses} />
-            <select value={fromAccountId} onChange={e => setFromAccountId(e.target.value)} required className={inputClasses}><option value="">From Account</option>{accounts.filter(acc => acc.type !== AccountType.LOAN).map(a => <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.balance, a.currency)})</option>)}</select>
-            <div className="flex justify-end gap-3 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit">Contribute</Button></div>
-        </form>
-    );
-};
-
-const GoalsView: React.FC = () => {
-    const { goals, deleteGoal, primaryCurrency } = useFinance();
-    const [isAddEditModalOpen, setAddEditModalOpen] = useState(false);
-    const [isContributeModalOpen, setContributeModalOpen] = useState(false);
-    const [selectedGoal, setSelectedGoal] = useState<Goal | undefined>(undefined);
-
-    const openAddEditModal = (goal?: Goal) => { setSelectedGoal(goal); setAddEditModalOpen(true); };
-    const openContributeModal = (goal: Goal) => { setSelectedGoal(goal); setContributeModalOpen(true); };
-    const closeModal = () => { setSelectedGoal(undefined); setAddEditModalOpen(false); setContributeModalOpen(false); };
-
-    const getMonthsRemaining = (targetDate: string) => {
-        const today = new Date(); today.setHours(0,0,0,0);
-        const target = new Date(targetDate); target.setHours(0,0,0,0);
-        if (target <= today) return 0;
-        let months = (target.getFullYear() - today.getFullYear()) * 12 - today.getMonth() + target.getMonth();
-        return months <= 0 ? 1 : months + 1;
-    };
-
-    return (
-        <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                <h2 className="text-3xl font-bold text-white">Financial Goals</h2><Button onClick={() => openAddEditModal()}>{ICONS.plus}<span className="hidden sm:inline">Add New Goal</span></Button>
-            </div>
-            <Card className="mb-8"><h4 className="font-semibold text-content-200 text-sm">Total Saved Towards Goals</h4><p className="text-3xl font-bold text-accent-success mt-1">{formatCurrency(goals.reduce((sum, g) => sum + g.currentAmount, 0), primaryCurrency)}</p></Card>
-            {goals.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {goals.map(goal => {
-                        const progress = goal.targetAmount > 0 ? Math.min((goal.currentAmount / goal.targetAmount) * 100, 100) : 100;
-                        const monthsRemaining = getMonthsRemaining(goal.targetDate);
-                        const requiredMonthly = monthsRemaining > 0 && goal.currentAmount < goal.targetAmount ? (goal.targetAmount - goal.currentAmount) / monthsRemaining : 0;
-                        return (
-                            <Card key={goal.id} className="flex flex-col">
-                                <div className="flex justify-between items-start gap-2">
-                                    <div className="flex-1"><h3 className="text-lg font-bold text-white truncate pr-2" title={goal.name}>{goal.name}</h3><p className="text-xs text-content-200">Target: {formatDate(goal.targetDate)}</p></div>
-                                    <div className="flex gap-1.5 flex-shrink-0"><Button variant="secondary" className="p-1.5" onClick={() => openAddEditModal(goal)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Delete goal: ${goal.name}?`) && deleteGoal(goal.id)}>{ICONS.trash}</Button></div>
-                                </div>
-                                <div className="mt-4 flex-grow">
-                                    <div className="w-full bg-base-300 rounded-full h-3"><div className="bg-brand-gradient from-brand-gradient-from to-brand-gradient-to h-3 rounded-full text-[10px] text-white flex items-center justify-center" style={{ width: `${progress}%` }}></div></div>
-                                    <div className="flex justify-between text-sm mt-2"><span className="text-white font-semibold">{formatCurrency(goal.currentAmount, primaryCurrency)}</span><span className="text-content-200">{formatCurrency(goal.targetAmount, primaryCurrency)}</span></div>
-                                    {requiredMonthly > 0 && <div className="text-xs text-center mt-3 bg-base-100 p-1.5 rounded-md">Save <span className="font-bold text-accent-warning">{formatCurrency(requiredMonthly, primaryCurrency)}</span>/month to stay on track</div>}
-                                </div>
-                                <div className="mt-4 pt-4 border-t border-base-300"><Button onClick={() => openContributeModal(goal)} className="w-full">Contribute</Button></div>
-                            </Card>
-                        )
-                    })}
-                </div>
-            ) : <div className="text-center py-16"><p className="text-content-200">No goals set yet. Create your first goal to start saving for your dreams!</p></div>}
-            <Modal isOpen={isAddEditModalOpen} onClose={closeModal} title={selectedGoal ? 'Edit Goal' : 'Add New Goal'}><GoalForm onClose={closeModal} existingGoal={selectedGoal}/></Modal>
-            {selectedGoal && <Modal isOpen={isContributeModalOpen} onClose={closeModal} title={`Contribute to ${selectedGoal.name}`}><ContributeForm onClose={closeModal} goal={selectedGoal}/></Modal>}
-        </div>
-    );
-};
-
-
-const InsightsView: React.FC = () => {
-    const { transactions, accounts, categories } = useFinance();
-    const [insights, setInsights] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-
-    const fetchInsights = useCallback(async () => {
-        setIsLoading(true);
-        setInsights('');
-        const result = await getFinancialInsights(transactions, accounts, categories);
-        setInsights(result);
-        setIsLoading(false);
-    }, [transactions, accounts, categories]);
-
-    useEffect(() => {
-        if (import.meta.env.VITE_API_KEY) fetchInsights();
-        else setInsights("This feature requires an API key. Please set the `VITE_API_KEY` environment variable to use AI insights.");
-    }, [fetchInsights]);
-
-    const InsightSkeleton = () => (
-        <div className="space-y-6">
-            <SkeletonLoader className="h-8 w-3/4" />
-            <div className="space-y-3">
-                <SkeletonLoader className="h-4 w-full" />
-                <SkeletonLoader className="h-4 w-5/6" />
-            </div>
-            <SkeletonLoader className="h-6 w-1/2 mt-6" />
-            <div className="space-y-3">
-                <SkeletonLoader className="h-4 w-full" />
-                <SkeletonLoader className="h-4 w-full" />
-                <SkeletonLoader className="h-4 w-4/6" />
-            </div>
-        </div>
-    );
-
-    return (
-        <div className="animate-fade-in">
-            <div className="flex justify-between items-center mb-8"><h2 className="text-3xl font-bold text-white">AI Financial Insights</h2><Button onClick={fetchInsights} disabled={isLoading}>{isLoading ? 'Analyzing...' : 'Refresh Insights'}</Button></div>
-            <Card hasGlow>
-                {isLoading ? <InsightSkeleton /> : <div className="prose prose-invert max-w-none text-content-100 leading-relaxed space-y-2" dangerouslySetInnerHTML={{ __html: insights.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>').replace(/## (.*)/g, '<h2 class="text-xl font-bold mt-6 mb-2 text-white">$1</h2>').replace(/# (.*)/g, '<h1 class="text-2xl font-bold mt-8 mb-3 text-white">$1</h1>').replace(/\* (.*)/g, '<li class="ml-5 list-disc">$1</li>').replace(/(<li>.*<\/li>)+/g, '<ul>$&</ul>').replace(/\n/g, '<br />') }}></div>}
-            </Card>
-        </div>
-    );
-};
-
-const InvestmentForm: React.FC<{onClose: () => void; existingInvestment?: Investment}> = ({onClose, existingInvestment}) => {
-    const { addInvestment, updateInvestment } = useFinance();
-    const [investment, setInvestment] = useState<Partial<Investment>>(existingInvestment || { type: InvestmentType.STOCK, units: 0, purchasePrice: 0, currentPrice: 0 });
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setInvestment(p => ({ ...p, [e.target.name]: ['units', 'purchasePrice', 'currentPrice'].includes(e.target.name) ? parseFloat(e.target.value) : e.target.value }));
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const data = { ...investment, purchaseDate: investment.purchaseDate ? new Date(investment.purchaseDate).toISOString() : new Date().toISOString() };
-        if (existingInvestment) updateInvestment(data as Investment); else addInvestment(data as Omit<Investment, 'id'>);
-        onClose();
-    };
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="text" name="name" placeholder="Investment Name (e.g. Apple Inc.)" value={investment.name || ''} onChange={handleChange} required className={inputClasses} />
-            <select name="type" value={investment.type} onChange={handleChange} className={inputClasses}>{Object.values(InvestmentType).map(t => <option key={t} value={t}>{t}</option>)}</select>
-            <input type="number" step="any" name="units" placeholder="Units / Shares" value={investment.units || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="purchasePrice" placeholder="Purchase Price / NAV" value={investment.purchasePrice || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="currentPrice" placeholder="Current Price / NAV" value={investment.currentPrice || ''} onChange={handleChange} required className={inputClasses} />
-            <CustomDatePicker value={investment.purchaseDate || ''} onChange={date => setInvestment(p => ({ ...p, purchaseDate: date}))} />
-            <div className="flex justify-end gap-3 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit">{existingInvestment ? 'Update' : 'Add'} Investment</Button></div>
-        </form>
-    );
-};
-
-const GroupedInvestmentCard: React.FC<{
-    group: Investment[],
-    onEdit: (investment: Investment) => void,
-    onDelete: (id: string) => void,
-    primaryCurrency: string
-}> = ({ group, onEdit, onDelete, primaryCurrency }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
-    const summary = useMemo(() => {
-        const first = group[0];
-        const totalUnits = group.reduce((sum, i) => sum + i.units, 0);
-        const totalInvested = group.reduce((sum, i) => sum + (i.purchasePrice * i.units), 0);
-        const currentPrice = first.currentPrice;
-        const totalCurrentValue = totalUnits * currentPrice;
-        const pAndL = totalCurrentValue - totalInvested;
-        const pAndLPercent = totalInvested > 0 ? (pAndL / totalInvested) * 100 : 0;
-        const avgBuyPrice = totalUnits > 0 ? totalInvested / totalUnits : 0;
-        return {
-            name: first.name,
-            type: first.type,
-            totalUnits,
-            totalInvested,
-            currentPrice,
-            totalCurrentValue,
-            pAndL,
-            pAndLPercent,
-            avgBuyPrice
-        };
-    }, [group]);
-
-    return (
-        <Card className="p-0">
-            <div className="p-5">
-                <div onClick={() => setIsExpanded(p => !p)} className="flex justify-between items-start gap-2 cursor-pointer">
-                    <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-bold text-white truncate pr-2" title={summary.name}>{summary.name}</h3>
-                        <span className="text-xs bg-base-300 text-content-100 px-1.5 py-0.5 rounded">{summary.type}</span>
-                    </div>
-                    <div className="flex flex-col items-end flex-shrink-0">
-                         <p className={classNames("text-xl font-bold", summary.pAndL >= 0 ? 'text-accent-success':'text-accent-error')}>
-                            {summary.pAndL >= 0 ? '+' : ''}{formatCurrency(summary.pAndL, primaryCurrency)}
-                         </p>
-                         <p className={classNames("text-sm font-semibold", summary.pAndL >= 0 ? 'text-accent-success':'text-accent-error')}>
-                            ({summary.pAndLPercent.toFixed(2)}%)
-                         </p>
-                    </div>
-                </div>
-                 <div className="mt-3 pt-3 border-t border-base-300 grid grid-cols-2 md:grid-cols-4 gap-y-2 gap-x-4 text-sm">
-                    <div><span className="text-content-200 block">Current Value</span> <span className="font-semibold text-white text-base">{formatCurrency(summary.totalCurrentValue, primaryCurrency)}</span></div>
-                    <div><span className="text-content-200 block">Total Invested</span> <span className="font-semibold text-white text-base">{formatCurrency(summary.totalInvested, primaryCurrency)}</span></div>
-                    <div><span className="text-content-200 block">Total Units</span> <span className="font-semibold text-white text-base">{summary.totalUnits.toFixed(4)}</span></div>
-                    <div><span className="text-content-200 block">Avg. Price</span> <span className="font-semibold text-white text-base">{formatCurrency(summary.avgBuyPrice, primaryCurrency)}</span></div>
-                </div>
-            </div>
-            {isExpanded && (
-                <div className="animate-fade-in border-t border-base-300 bg-base-100/30 px-5 py-3">
-                    <h4 className="font-bold text-white mb-2">Purchase History</h4>
-                    <div className="space-y-2 text-sm">
-                         <div className="hidden md:grid grid-cols-5 gap-2 text-xs text-content-200 font-semibold border-b border-base-300 pb-1 mb-1">
-                             <span>Date</span><span>Units</span><span>Price</span><span className="text-right">Invested</span><span></span>
-                         </div>
-                        {group.map(inv => (
-                            <div key={inv.id} className="grid grid-cols-3 md:grid-cols-5 gap-2 items-center p-2 rounded-md hover:bg-base-200/50">
-                                <div className="md:col-span-1"><span className="md:hidden text-xs text-content-200">Date: </span>{formatDate(inv.purchaseDate)}</div>
-                                <div className="md:col-span-1"><span className="md:hidden text-xs text-content-200">Units: </span>{inv.units}</div>
-                                <div className="md:col-span-1"><span className="md:hidden text-xs text-content-200">Price: </span>{formatCurrency(inv.purchasePrice, primaryCurrency)}</div>
-                                <div className="col-span-2 md:col-span-1 text-right"><span className="md:hidden text-xs text-content-200">Invested: </span>{formatCurrency(inv.purchasePrice * inv.units, primaryCurrency)}</div>
-                                <div className="col-span-1 flex justify-end gap-1.5">
-                                    <Button variant="secondary" className="!p-1.5 h-auto" onClick={() => onEdit(inv)}>{ICONS.edit}</Button>
-                                    <Button variant="danger" className="!p-1.5 h-auto" onClick={() => onDelete(inv.id)}>{ICONS.trash}</Button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </Card>
-    )
-};
-
-
-const InvestmentsView: React.FC = () => {
-    const { investments, deleteInvestment, primaryCurrency } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingInvestment, setEditingInvestment] = useState<Investment | undefined>(undefined);
-    const [searchTerm, setSearchTerm] = useState('');
-    const openModal = (investment?: Investment) => { setEditingInvestment(investment); setIsModalOpen(true); };
-    const closeModal = () => { setEditingInvestment(undefined); setIsModalOpen(false); };
-    const filteredInvestments = useMemo(() => investments.filter(inv => inv.name.toLowerCase().includes(searchTerm.toLowerCase())), [investments, searchTerm]);
-    
-    const { totalInvested, totalCurrentValue, totalPL } = useMemo(() => {
-        const totalInvested = investments.reduce((sum, i) => sum + i.purchasePrice * i.units, 0);
-        
-        // To calculate total current value, we need to group by name first to avoid multiplying units by same current price multiple times
-        const uniqueInvestments: {[key: string]: {totalUnits: number, currentPrice: number}} = {};
-        investments.forEach(inv => {
-            if(!uniqueInvestments[inv.name]) {
-                uniqueInvestments[inv.name] = { totalUnits: 0, currentPrice: inv.currentPrice };
-            }
-            uniqueInvestments[inv.name].totalUnits += inv.units;
-        });
-
-        const totalCurrentValue = Object.values(uniqueInvestments).reduce((sum, i) => sum + i.totalUnits * i.currentPrice, 0);
-        const totalPL = totalCurrentValue - totalInvested;
-        return { totalInvested, totalCurrentValue, totalPL };
-
-    }, [investments]);
-
-    const groupedInvestments = useMemo(() => {
-        const groups: { [key: string]: Investment[] } = filteredInvestments.reduce((acc, inv) => {
-            const key = inv.name.trim().toLowerCase();
-            if (!acc[key]) {
-                acc[key] = [];
-            }
-            acc[key].push(inv);
-            return acc;
-        }, {} as { [key: string]: Investment[] });
-    
-        Object.values(groups).forEach(group => {
-            group.sort((a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime());
-        });
-    
-        return Object.values(groups);
-    }, [filteredInvestments]);
-
-
-    return (
-        <div className="animate-fade-in">
-             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                <h2 className="text-3xl font-bold text-white self-start md:self-center">Investments</h2>
-                 <div className="flex items-center gap-3 w-full md:w-auto"><div className="relative flex-grow"><input type="text" placeholder="Search investments..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-base-200/80 p-3 pl-10 rounded-xl text-white border border-base-300" /><div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-200">{ICONS.search}</div></div><Button onClick={() => openModal()} className="flex-shrink-0">{ICONS.plus}<span className="hidden sm:inline">Add Investment</span></Button></div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><Card><h4 className="font-semibold text-content-200 text-sm">Total Invested</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalInvested, primaryCurrency)}</p></Card><Card><h4 className="font-semibold text-content-200 text-sm">Current Value</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalCurrentValue, primaryCurrency)}</p></Card><Card hasGlow={totalPL !== 0}><h4 className="font-semibold text-content-200 text-sm">Overall P/L</h4><p className={classNames("text-2xl font-bold mt-1", totalPL >= 0 ? 'text-accent-success':'text-accent-error')}>{totalPL >= 0 ? '+' : ''}{formatCurrency(totalPL, primaryCurrency)}</p></Card></div>
-            
-            {groupedInvestments.length > 0 ? (
-                <div className="space-y-6">
-                    {groupedInvestments.map((group) => (
-                       <GroupedInvestmentCard 
-                          key={group[0].name}
-                          group={group}
-                          onEdit={openModal}
-                          onDelete={(id) => window.confirm('Are you sure you want to delete this purchase entry?') && deleteInvestment(id)}
-                          primaryCurrency={primaryCurrency}
-                       />
-                    ))}
-                </div>
-            ) : <div className="text-center py-16"><p className="text-content-200">{investments.length > 0 ? "No investments match search." : "No investments found."}</p></div>}
-            
-            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingInvestment ? 'Edit Investment' : 'Add Investment'}><InvestmentForm onClose={closeModal} existingInvestment={editingInvestment}/></Modal>
-        </div>
-    );
-};
-
-const SavingsForm: React.FC<{onClose: () => void; existingSaving?: SavingsInstrument}> = ({onClose, existingSaving}) => {
-    const { addSaving, updateSaving } = useFinance();
-    const [saving, setSaving] = useState<Partial<SavingsInstrument>>(existingSaving || { type: SavingsType.FD, principal: 0, interestRate: 0 });
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setSaving(p => ({ ...p, [e.target.name]: ['principal', 'interestRate', 'maturityAmount'].includes(e.target.name) ? parseFloat(e.target.value) : e.target.value }));
-    
-    const handleCalculateMaturity = () => {
-        const { type, principal, interestRate, depositDate, maturityDate } = saving;
-        if (!type || !principal || !interestRate || !depositDate || !maturityDate) {
-            alert("Please fill in Principal, Interest Rate, and both dates to calculate.");
-            return;
-        }
-
-        const tenureMonths = getMonthsBetween(depositDate, maturityDate);
-        if (tenureMonths <= 0) {
-            alert("Maturity Date must be after Deposit Date.");
-            return;
-        }
-
-        let calculatedAmount = 0;
-        const rate = interestRate / 100;
-
-        if (type === SavingsType.FD) {
-            const tenureYears = tenureMonths / 12;
-            calculatedAmount = principal * Math.pow(1 + rate / 4, 4 * tenureYears);
-        } else { // SavingsType.RD
-            const monthlyRate = rate / 12;
-            const n = tenureMonths;
-            calculatedAmount = principal * ((Math.pow(1 + monthlyRate, n) - 1) / monthlyRate) * (1 + monthlyRate);
-        }
-        
-        setSaving(p => ({ ...p, maturityAmount: parseFloat(calculatedAmount.toFixed(2)) }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const data = { ...saving, depositDate: saving.depositDate ? new Date(saving.depositDate).toISOString() : new Date().toISOString(), maturityDate: saving.maturityDate ? new Date(saving.maturityDate).toISOString() : new Date().toISOString() };
-        if (existingSaving) updateSaving(data as SavingsInstrument); else addSaving(data as Omit<SavingsInstrument, 'id'>);
-        onClose();
-    };
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <select name="type" value={saving.type} onChange={handleChange} className={inputClasses}>{Object.values(SavingsType).map(t => <option key={t} value={t}>{t}</option>)}</select>
-            <input type="text" name="bankName" placeholder="Bank Name" value={saving.bankName || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="text" name="accountNumber" placeholder="Account Number" value={saving.accountNumber || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="principal" placeholder={saving.type === SavingsType.RD ? "Monthly Installment" : "Principal Amount"} value={saving.principal || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="interestRate" placeholder="Interest Rate (%)" value={saving.interestRate || ''} onChange={handleChange} required className={inputClasses} />
-            
-            <div className="flex items-end gap-2">
-                <div className="flex-grow">
-                    <label className="text-sm text-content-200">Maturity Amount (Optional)</label>
-                    <input type="number" step="any" name="maturityAmount" placeholder="Expected return" value={saving.maturityAmount || ''} onChange={handleChange} className={inputClasses} />
-                </div>
-                <Button type="button" variant="secondary" onClick={handleCalculateMaturity} className="h-[52px] whitespace-nowrap !px-3">Calculate</Button>
-            </div>
-            
-            <div><label className="text-sm text-content-200">Deposit Date</label><CustomDatePicker value={saving.depositDate || ''} onChange={date => setSaving(p => ({...p, depositDate: date}))}/></div>
-            <div><label className="text-sm text-content-200">Maturity Date</label><CustomDatePicker value={saving.maturityDate || ''} onChange={date => setSaving(p => ({...p, maturityDate: date}))}/></div>
-            <div className="flex justify-end gap-3 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit">{existingSaving ? 'Update' : 'Add'} Savings</Button></div>
-        </form>
-    );
-};
-
-const SavingsView: React.FC = () => {
-    const { savings, deleteSaving, primaryCurrency } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingSaving, setEditingSaving] = useState<SavingsInstrument | undefined>(undefined);
-    const [searchTerm, setSearchTerm] = useState('');
-    const openModal = (saving?: SavingsInstrument) => { setEditingSaving(saving); setIsModalOpen(true); };
-    const closeModal = () => { setEditingSaving(undefined); setIsModalOpen(false); };
-    const filteredSavings = useMemo(() => savings.filter(s => s.bankName.toLowerCase().includes(searchTerm.toLowerCase())), [savings, searchTerm]);
-
-    const totalPrincipal = useMemo(() => {
-        return savings.reduce((sum, s) => {
-            if (s.type === SavingsType.FD) {
-                return sum + s.principal;
-            } else { // RD
-                const tenureMonths = getMonthsBetween(s.depositDate, s.maturityDate);
-                return sum + (s.principal * tenureMonths);
-            }
-        }, 0);
-    }, [savings]);
-
-    const totalMaturityValue = useMemo(() => {
-        return savings.reduce((sum, s) => sum + (s.maturityAmount || 0), 0);
-    }, [savings]);
-
-    return (
-        <div className="animate-fade-in">
-             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                <h2 className="text-3xl font-bold text-white self-start md:self-center">Savings (FD/RD)</h2>
-                 <div className="flex items-center gap-3 w-full md:w-auto"><div className="relative flex-grow"><input type="text" placeholder="Search by bank name..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-base-200/80 p-3 pl-10 rounded-xl text-white border border-base-300" /><div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-200">{ICONS.search}</div></div><Button onClick={() => openModal()} className="flex-shrink-0">{ICONS.plus}<span className="hidden sm:inline">Add Savings</span></Button></div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <Card>
-                    <h4 className="font-semibold text-content-200 text-sm">Total Principal Invested</h4>
-                    <p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalPrincipal, primaryCurrency)}</p>
-                </Card>
-                <Card hasGlow={totalMaturityValue > totalPrincipal}>
-                    <h4 className="font-semibold text-content-200 text-sm">Total Expected Return</h4>
-                    <p className={classNames("text-2xl font-bold mt-1", totalMaturityValue > totalPrincipal ? 'text-accent-success' : 'text-content-100')}>{formatCurrency(totalMaturityValue, primaryCurrency)}</p>
-                </Card>
-            </div>
-
-            {filteredSavings.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredSavings.map(s => {
-                    const tenureMonths = getMonthsBetween(s.depositDate, s.maturityDate);
-                    const totalInvested = s.type === SavingsType.FD ? s.principal : s.principal * tenureMonths;
-                    const interestEarned = s.maturityAmount ? s.maturityAmount - totalInvested : 0;
-                    return (
-                    <Card key={s.id}><div className="flex flex-col h-full"><div className="flex justify-between items-start gap-2"><div className="flex-1"><h3 className="text-lg font-bold text-white truncate pr-2" title={s.bankName}>{s.bankName}</h3><p className="text-sm text-content-200 truncate pr-2">{s.accountNumber}</p></div><div className="flex gap-1.5 flex-shrink-0"><Button variant="secondary" className="p-1.5" onClick={() => openModal(s)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Are you sure you want to delete this saving instrument?`) && deleteSaving(s.id)}>{ICONS.trash}</Button></div></div>
-                    <div className="flex-grow mt-3 pt-3 border-t border-base-300 grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
-                        <div><span className="text-content-200 block">{s.type === SavingsType.RD ? "Installment" : "Principal"}</span> <span className="font-semibold text-white text-base">{formatCurrency(s.principal, primaryCurrency)}</span></div>
-                        <div><span className="text-content-200 block">Interest Rate</span> <span className="font-semibold text-white text-base">{s.interestRate}%</span></div>
-                        <div><span className="text-content-200 block">Deposit Date</span> <span className="font-semibold text-white">{formatDate(s.depositDate)}</span></div>
-                        <div><span className="text-content-200 block">Maturity Date</span> <span className="font-semibold text-white">{formatDate(s.maturityDate)}</span></div>
-                        {s.maturityAmount && s.maturityAmount > 0 && (
-                            <>
-                                <div className="col-span-2 my-2 border-t border-base-300"></div>
-                                <div><span className="text-content-200 block">Maturity Value</span><span className="font-semibold text-accent-success text-base">{formatCurrency(s.maturityAmount, primaryCurrency)}</span></div>
-                                <div><span className="text-content-200 block">Interest Earned</span><span className="font-semibold text-accent-success text-base">{formatCurrency(interestEarned, primaryCurrency)}</span></div>
-                            </>
-                        )}
-                    </div></div></Card>
-                )})}</div>
-            ) : <div className="text-center py-16"><p className="text-content-200">{savings.length > 0 ? "No savings match search." : "No FDs or RDs found."}</p></div>}
-            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingSaving ? 'Edit Savings' : 'Add Savings'}><SavingsForm onClose={closeModal} existingSaving={editingSaving}/></Modal>
-        </div>
-    );
-};
-
-const AssetForm: React.FC<{onClose: () => void; existingAsset?: Asset}> = ({onClose, existingAsset}) => {
-    const { assetCategories, addAsset, updateAsset } = useFinance();
-    const [entryMode, setEntryMode] = useState<'url' | 'manual'>(existingAsset ? 'manual' : 'url');
-    const [assetData, setAssetData] = useState<Partial<Asset>>(existingAsset || { purchaseDate: new Date().toISOString() });
-    const [isFetching, setIsFetching] = useState(false);
-    const [url, setUrl] = useState('');
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
-
-    const handleFetchDetails = async () => {
-        if (!url) return alert("Please enter a URL.");
-        setIsFetching(true);
-        try {
-            const details = await fetchProductDetailsFromUrl(url);
-            if (details) {
-                setAssetData(prev => ({...prev, ...details}));
-                setEntryMode('manual');
-            } else {
-                alert("Could not fetch details from URL. Please enter them manually.");
-                setEntryMode('manual');
-            }
-        } catch (error) {
-            console.error(error);
-            alert("An error occurred. Please enter details manually.");
-            setEntryMode('manual');
-        } finally {
-            setIsFetching(false);
-        }
-    };
-    
-    const handleFileSelect = (base64: string) => {
-        setAssetData(prev => ({ ...prev, imageUrl: base64 }));
-    };
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setAssetData(p => ({ ...p, [name]: name === 'purchasePrice' ? parseFloat(value) : value }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const { name, purchasePrice, categoryId, purchaseDate } = assetData;
-        if (!name || !purchasePrice || !categoryId || !purchaseDate) return alert("Please fill all required fields.");
-        if(existingAsset) {
-            updateAsset(assetData as Asset);
-        } else {
-            addAsset(assetData as Omit<Asset, 'id'>);
-        }
-        onClose();
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="flex gap-2 p-1 bg-base-100 rounded-lg">
-                <button type="button" onClick={() => setEntryMode('url')} className={classNames('w-full p-2 rounded-md', entryMode === 'url' ? 'bg-base-300 text-white' : 'text-content-200')}>Fetch from URL</button>
-                <button type="button" onClick={() => setEntryMode('manual')} className={classNames('w-full p-2 rounded-md', entryMode === 'manual' ? 'bg-base-300 text-white' : 'text-content-200')}>Manual Entry</button>
-            </div>
-            
-            {entryMode === 'url' ? (
-                <div className="space-y-4 pt-4">
-                    <input type="url" placeholder="https://www.amazon.in/dp/B0CQ32S54D" value={url} onChange={e => setUrl(e.target.value)} className={inputClasses} />
-                    <Button type="button" onClick={handleFetchDetails} disabled={isFetching} className="w-full">
-                        {isFetching ? <SkeletonLoader className="h-4 w-20" /> : ICONS.link}
-                        {isFetching ? "Fetching..." : "Fetch Details"}
-                    </Button>
-                </div>
-            ) : (
-                <div className="space-y-4 animate-fade-in">
-                    {assetData.imageUrl && <img src={assetData.imageUrl} alt="Asset preview" className="w-full h-48 object-contain rounded-md bg-base-100"/>}
-                    <input type="text" name="name" placeholder="Asset Name" value={assetData.name || ''} onChange={handleChange} required className={inputClasses} />
-                    <textarea name="description" placeholder="Description (optional)" value={assetData.description || ''} onChange={handleChange} className={classNames(inputClasses, "h-20 resize-y")} />
-                    <div className="grid grid-cols-2 gap-4">
-                        <input type="number" step="0.01" name="purchasePrice" placeholder="Price" value={assetData.purchasePrice || ''} onChange={handleChange} required className={inputClasses} />
-                        <CustomDatePicker value={assetData.purchaseDate || ''} onChange={date => setAssetData(p => ({...p, purchaseDate: date}))} />
-                    </div>
-                    <select name="categoryId" value={assetData.categoryId || ''} onChange={handleChange} required className={inputClasses}><option value="">Select Category</option>{assetCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-                    <input type="text" name="purchaseLocation" placeholder="Purchase Location (e.g., Amazon, Local Store)" value={assetData.purchaseLocation || ''} onChange={handleChange} className={inputClasses} />
-                    <input type="text" name="productUrl" placeholder="Product URL (optional)" value={assetData.productUrl || ''} onChange={handleChange} className={inputClasses} />
-                    
-                    <div className="flex justify-center gap-4">
-                        <FileInputButton onFileSelect={handleFileSelect} capture="environment">{ICONS.camera}Take Photo</FileInputButton>
-                        <FileInputButton onFileSelect={handleFileSelect}>{ICONS.upload}Upload</FileInputButton>
-                    </div>
-
-                    <div className="flex justify-end gap-3 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit">{existingAsset ? 'Update' : 'Add'} Asset</Button></div>
-                </div>
-            )}
-        </form>
-    );
-};
-
-const AssetsView: React.FC = () => {
-    const { assets, getAssetCategoryById, deleteAsset, primaryCurrency } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingAsset, setEditingAsset] = useState<Asset | undefined>(undefined);
-    
-    const openModal = (asset?: Asset) => { setEditingAsset(asset); setIsModalOpen(true); };
-    const closeModal = () => { setEditingAsset(undefined); setIsModalOpen(false); };
-
-    const assetsByCategory = useMemo(() => {
-        const grouped: {[key: string]: Asset[]} = {};
-        assets.forEach(asset => {
-            const category = getAssetCategoryById(asset.categoryId);
-            const categoryName = category?.name || 'Uncategorized';
-            if(!grouped[categoryName]) grouped[categoryName] = [];
-            grouped[categoryName].push(asset);
-        });
-        return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
-    }, [assets, getAssetCategoryById]);
-    
-    const totalAssetValue = useMemo(() => assets.reduce((sum, asset) => sum + asset.purchasePrice, 0), [assets]);
-
-    return (
-        <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                <h2 className="text-3xl font-bold text-white">Assets</h2><Button onClick={() => openModal()}>{ICONS.plus}Add New Asset</Button>
-            </div>
-            <Card className="mb-8"><h4 className="font-semibold text-content-200 text-sm">Total Asset Value (at purchase)</h4><p className="text-3xl font-bold text-white mt-1">{formatCurrency(totalAssetValue, primaryCurrency)}</p></Card>
-
-            {assets.length > 0 ? (
-                <div className="space-y-8">
-                    {assetsByCategory.map(([categoryName, categoryAssets]) => (
-                        <div key={categoryName}>
-                            <h3 className="text-2xl font-bold text-white mb-4 border-b border-base-300 pb-2">{categoryName}</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                {categoryAssets.map(asset => (
-                                    <Card key={asset.id} className="p-0 flex flex-col group">
-                                        <img src={asset.imageUrl || `https://via.placeholder.com/300x200/1A1A1A/A1A1A1?text=${encodeURIComponent(asset.name)}`} alt={asset.name} className="w-full h-40 object-cover rounded-t-2xl"/>
-                                        <div className="p-4 flex flex-col flex-grow">
-                                            <div className="flex justify-between items-start gap-2">
-                                                <h4 className="font-bold text-white flex-1 truncate" title={asset.name}>{asset.name}</h4>
-                                                <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"><Button variant="secondary" className="p-1.5" onClick={() => openModal(asset)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Are you sure you want to delete asset: ${asset.name}?`) && deleteAsset(asset.id)}>{ICONS.trash}</Button></div>
-                                            </div>
-                                            <p className="text-xl font-light text-white mt-2">{formatCurrency(asset.purchasePrice, primaryCurrency)}</p>
-                                            <div className="text-sm text-content-200 mt-2 flex-grow">
-                                                Purchased: {formatDate(asset.purchaseDate)}
-                                                {asset.purchaseLocation && ` from ${asset.purchaseLocation}`}
-                                            </div>
-                                            {asset.productUrl && <a href={asset.productUrl} target="_blank" rel="noopener noreferrer" className="text-brand-gradient-to text-sm mt-3 hover:underline">View Product &rarr;</a>}
-                                        </div>
-                                    </Card>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : <div className="text-center py-16"><p className="text-content-200">No assets tracked yet. Add your valuable items to see them here.</p></div>}
-            
-            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingAsset ? 'Edit Asset' : 'Add New Asset'}>
-                <AssetForm onClose={closeModal} existingAsset={editingAsset}/>
-            </Modal>
-        </div>
-    );
-};
-
-const SubscriptionsView: React.FC = () => {
-    const { subscriptions, transactions, categories, getCategoryById, deleteSubscription, primaryCurrency, addSubscription } = useFinance();
-    const [isLoading, setIsLoading] = useState(false);
-    const [potentialSubscriptions, setPotentialSubscriptions] = useState<any[]>([]);
-    const [scanPerformed, setScanPerformed] = useState(false);
-
-    const handleScan = async () => {
-        setIsLoading(true);
-        setPotentialSubscriptions([]);
-        setScanPerformed(true);
-        const result = await findSubscriptions(transactions, categories);
-        // Filter out subscriptions that are already tracked by name
-        const trackedNames = new Set(subscriptions.map(s => s.name.toLowerCase()));
-        const newPotential = result.filter(p => p.name && !trackedNames.has(p.name.toLowerCase()));
-        setPotentialSubscriptions(newPotential);
-        setIsLoading(false);
-    };
-    
-    const handleAddSubscription = (potentialSub: any) => {
-        const category = categories.find(c => c.name === potentialSub.categorySuggestion) || categories.find(c => c.name === 'Subscriptions');
-        
-        let lastPaymentDate;
-        try {
-            // Fix for dates that might not have hyphens
-            const dateStr = potentialSub.lastPaymentDate.replace(/\s/g, '-');
-            lastPaymentDate = new Date(dateStr);
-            if (isNaN(lastPaymentDate.getTime())) throw new Error("Invalid date");
-        } catch(e) {
-            console.error("Invalid last payment date from Gemini:", potentialSub.lastPaymentDate);
-            alert("Could not add subscription due to an invalid date received from the AI. Please add it manually.");
-            return;
-        }
-
-        const nextPaymentDate = new Date(lastPaymentDate);
-        
-        if (potentialSub.frequency === 'monthly') {
-            const originalDay = nextPaymentDate.getDate();
-            nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
-            // If the day changed, it means we rolled over, so go to the last day of the correct month
-            if (nextPaymentDate.getDate() !== originalDay) {
-                nextPaymentDate.setDate(0);
-            }
-        } else if (potentialSub.frequency === 'yearly') {
-            nextPaymentDate.setFullYear(nextPaymentDate.getFullYear() + 1);
-        } else { // weekly
-            nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
-        }
-
-        const newSub: Omit<Subscription, 'id'> = {
-            name: potentialSub.name,
-            amount: potentialSub.amount,
-            frequency: potentialSub.frequency,
-            categoryId: category?.id || categories.find(c => c.type === TransactionType.EXPENSE)!.id,
-            nextPaymentDate: nextPaymentDate.toISOString(),
-        };
-        addSubscription(newSub);
-        setPotentialSubscriptions(prev => prev.filter(p => p.name !== potentialSub.name));
-    }
-    
-    const totalMonthlyCost = useMemo(() => {
-        return subscriptions.reduce((total, sub) => {
-            if (sub.frequency === 'monthly') return total + sub.amount;
-            if (sub.frequency === 'yearly') return total + sub.amount / 12;
-            if (sub.frequency === 'weekly') return total + sub.amount * 4.33; // Approximation
-            return total;
-        }, 0);
-    }, [subscriptions]);
-    
-    return (
-        <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                <h2 className="text-3xl font-bold text-white">Subscriptions</h2>
-                <Button onClick={handleScan} disabled={isLoading}>
-                    {isLoading ? <SkeletonLoader className="h-4 w-40" /> : ICONS.scan}
-                    <span className="hidden sm:inline">{isLoading ? "Scanning..." : "Scan for Subscriptions"}</span>
-                </Button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <Card><h4 className="font-semibold text-content-200 text-sm">Active Subscriptions</h4><p className="text-3xl font-bold text-white mt-1">{subscriptions.length}</p></Card>
-                <Card><h4 className="font-semibold text-content-200 text-sm">Estimated Monthly Cost</h4><p className="text-3xl font-bold text-white mt-1">{formatCurrency(totalMonthlyCost, primaryCurrency)}</p></Card>
-            </div>
-            
-            {isLoading && (
-                <Card className="text-center p-8">
-                    <div className="flex justify-center items-center gap-2"><SkeletonLoader className="h-5 w-5 rounded-full" /><p>Scanning transactions for recurring payments...</p></div>
-                </Card>
-            )}
-
-            {!isLoading && scanPerformed && potentialSubscriptions.length === 0 && (
-                <Card className="text-center p-8 text-content-200">
-                    Scan complete. No new potential subscriptions found.
-                </Card>
-            )}
-
-            {potentialSubscriptions.length > 0 && (
-                <div className="mb-8">
-                    <h3 className="text-2xl font-bold text-white mb-4">Potential Subscriptions Found</h3>
-                    <div className="space-y-4">
-                        {potentialSubscriptions.map((sub, index) => (
-                            <Card key={index} className="p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-                                <div className="flex-1">
-                                    <p className="font-bold text-white">{sub.name}</p>
-                                    <p className="text-lg text-content-100">{formatCurrency(sub.amount, primaryCurrency)} <span className="text-sm text-content-200">/ {sub.frequency}</span></p>
-                                    <p className="text-xs text-content-200">Suggested Category: {sub.categorySuggestion}</p>
-                                </div>
-                                <Button onClick={() => handleAddSubscription(sub)}>
-                                    {ICONS.plus} Add
-                                </Button>
-                            </Card>
-                        ))}
-                    </div>
-                </div>
-            )}
-            
-            <div>
-                <h3 className="text-2xl font-bold text-white mb-4">Tracked Subscriptions</h3>
-                {subscriptions.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {subscriptions.map(sub => (
-                            <Card key={sub.id}>
-                                <div className="flex justify-between items-start">
-                                    <h4 className="text-lg font-bold text-white">{sub.name}</h4>
-                                    <Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Stop tracking ${sub.name}?`) && deleteSubscription(sub.id)}>{ICONS.trash}</Button>
-                                </div>
-                                <p className="text-2xl font-light text-white mt-2">{formatCurrency(sub.amount, primaryCurrency)} <span className="text-sm text-content-200">/ {sub.frequency}</span></p>
-                                <div className="text-sm text-content-200 mt-3 pt-3 border-t border-base-300">
-                                    <p>Next Payment: <span className="text-white font-semibold">{formatDate(sub.nextPaymentDate)}</span></p>
-                                    <p>Category: <span className="text-white font-semibold">{getCategoryById(sub.categoryId)?.name || 'N/A'}</span></p>
-                                </div>
-                            </Card>
-                        ))}
-                    </div>
-                ) : (
-                    !isLoading && !scanPerformed && <div className="text-center py-16"><p className="text-content-200">No subscriptions tracked. Use the scan feature to find them!</p></div>
-                )}
-            </div>
-        </div>
-    )
-};
-
-const CategoryManager: React.FC = () => {
-    const { categories, addCategory, updateCategory, deleteCategory } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingCategory, setEditingCategory] = useState<Category | undefined>(undefined);
-
-    const openModal = (category?: Category) => {
-        setEditingCategory(category);
-        setIsModalOpen(true);
-    };
-
-    const closeModal = () => {
-        setEditingCategory(undefined);
-        setIsModalOpen(false);
-    };
-
-    const CategoryForm: React.FC<{onClose: () => void, existingCategory?: Category}> = ({ onClose, existingCategory }) => {
-        const [category, setCategory] = useState<Partial<Category>>(existingCategory || { name: '', type: TransactionType.EXPENSE, icon: 'misc' });
-        const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
-
-        const handleSubmit = (e: React.FormEvent) => {
-            e.preventDefault();
-            const { name, type, icon } = category;
-            if (!name || !type || !icon) return alert("Please fill all fields.");
-
-            if (existingCategory) {
-                updateCategory({ ...existingCategory, name, type, icon });
-            } else {
-                addCategory({ name, type, icon });
-            }
-            onClose();
-        };
-
-        const availableIcons = Object.keys(ICONS).filter(key => !['dashboard', 'accounts', 'transactions', 'budgets', 'insights', 'settings', 'investments', 'savings', 'goals', 'assets', 'subscriptions', 'logo', 'plus', 'edit', 'trash', 'export', 'search', 'filter', 'scan', 'camera', 'upload', 'link', 'chart-bar', 'list-details', 'eye', 'eye-slash', 'chevron-left', 'chevron-right'].includes(key));
-        
-        return (
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <input type="text" placeholder="Category Name" value={category.name || ''} onChange={(e) => setCategory(p => ({...p, name: e.target.value}))} required className={inputClasses}/>
-                <select value={category.type} onChange={(e) => setCategory(p => ({...p, type: e.target.value as (TransactionType.EXPENSE | TransactionType.INCOME)}))} className={inputClasses}>
-                    <option value={TransactionType.EXPENSE}>Expense</option>
-                    <option value={TransactionType.INCOME}>Income</option>
-                </select>
-                <div>
-                    <label className="text-sm text-content-200">Icon</label>
-                    <div className="grid grid-cols-6 gap-2 p-2 bg-base-100 rounded-lg mt-1 h-32 overflow-y-auto">
-                        {availableIcons.map(iconKey => (
-                            <button key={iconKey} type="button" onClick={() => setCategory(p => ({...p, icon: iconKey}))} className={classNames("flex items-center justify-center p-2 rounded-lg aspect-square transition-colors", category.icon === iconKey ? 'bg-brand-primary text-black' : 'bg-base-200 text-content-200 hover:bg-base-300')}>
-                                {ICONS[iconKey]}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                <div className="flex justify-end gap-3 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit">{existingCategory ? 'Update' : 'Create'}</Button></div>
-            </form>
-        )
-    }
-
-    return (
-        <Card>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-white">Manage Categories</h3>
-                <Button onClick={() => openModal()} className="text-sm py-1.5">{ICONS.plus}Add New</Button>
-            </div>
-            <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                {categories.map(cat => (
-                    <div key={cat.id} className="flex items-center justify-between p-3 bg-base-100 rounded-lg">
-                        <div className="flex items-center gap-3">
-                            <span className="text-content-200">{ICONS[cat.icon] || ICONS.misc}</span>
-                            <div>
-                                <p className="font-semibold text-white">{cat.name}</p>
-                                <p className={classNames("text-xs", cat.type === TransactionType.INCOME ? 'text-accent-success' : 'text-accent-error')}>{cat.type}</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-2">
-                            <Button variant="secondary" className="p-1.5" onClick={() => openModal(cat)}>{ICONS.edit}</Button>
-                            <Button variant="danger" className="p-1.5" onClick={() => deleteCategory(cat.id)}>{ICONS.trash}</Button>
-                        </div>
-                    </div>
-                ))}
-            </div>
-            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingCategory ? 'Edit Category' : 'Add Category'}>
-                <CategoryForm onClose={closeModal} existingCategory={editingCategory} />
-            </Modal>
-        </Card>
-    )
-}
-
-const ToggleSwitch: React.FC<{
-  enabled: boolean;
-  onChange: (enabled: boolean) => void;
-}> = ({ enabled, onChange }) => {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!enabled)}
-      className={classNames(
-        'relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-primary focus:ring-offset-base-200',
-        enabled ? 'bg-brand-gradient-to' : 'bg-base-300'
-      )}
-      aria-pressed={enabled}
-    >
-      <span
-        aria-hidden="true"
-        className={classNames(
-          'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200',
-          enabled ? 'translate-x-5' : 'translate-x-0'
-        )}
-      />
-    </button>
-  );
-};
-
-const DashboardCustomizer: React.FC = () => {
-    const { dashboardCards, setDashboardCards } = useFinance();
-
-    const handleToggle = (key: DashboardCard) => {
-        setDashboardCards(prev => ({
-            ...prev,
-            [key]: !prev?.[key],
-        }));
-    };
-
-    return (
-        <Card>
-            <h3 className="text-lg font-bold text-white mb-2">Customize Dashboard</h3>
-            <p className="text-sm text-content-200 mb-4">Select which cards to display on your dashboard.</p>
-            <div className="space-y-3">
-                {dashboardCardDefs.map(item => (
-                    <div 
-                        key={item.key} 
-                        className="flex items-center justify-between p-3 bg-base-100 rounded-lg"
-                    >
-                        <div className="flex-1 pr-4">
-                            <p className="font-semibold text-white">{item.label}</p>
-                            <p className="text-xs text-content-200">{item.description}</p>
-                        </div>
-                        <ToggleSwitch
-                            enabled={dashboardCards?.[item.key] ?? true}
-                            onChange={() => handleToggle(item.key)}
-                        />
-                    </div>
-                ))}
-            </div>
-        </Card>
-    )
-}
-
-const BottomNavCustomizer: React.FC = () => {
-    const { bottomNavViews, setBottomNavViews } = useFinance();
-
-    const handleToggle = (view: View) => {
-        const isSelected = bottomNavViews.includes(view);
-        if (isSelected) {
-            setBottomNavViews(prev => prev.filter(v => v !== view));
-        } else {
-            if (bottomNavViews.length < 4) {
-                setBottomNavViews(prev => [...prev, view]);
-            } else {
-                alert("You can select a maximum of 4 shortcuts for the bottom bar.");
-            }
-        }
-    };
-
-    return (
-        <Card>
-            <h3 className="text-lg font-bold text-white mb-2">Customize Bottom Navigation</h3>
-            <p className="text-sm text-content-200 mb-4">Select up to 4 views to show as shortcuts in the bottom navigation bar on mobile.</p>
-            <div className="space-y-2">
-                {allNavItems.map(item => {
-                    const isSelected = bottomNavViews.includes(item.view);
-                    return (
-                        <div 
-                            key={item.view} 
-                            onClick={() => handleToggle(item.view)}
-                            className="flex items-center justify-between p-3 bg-base-100 rounded-lg cursor-pointer hover:bg-base-300/50"
-                        >
-                            <div className="flex items-center gap-3">
-                                <span className={classNames("transition-colors", isSelected ? "text-brand-gradient-to" : "text-content-200")}>{item.icon}</span>
-                                <span className={classNames("font-semibold transition-colors", isSelected ? "text-white" : "text-content-100")}>{item.label}</span>
-                            </div>
-                            <div className={classNames(
-                                "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                                isSelected ? "bg-brand-primary border-brand-primary" : "border-base-300"
-                            )}>
-                                {isSelected && <svg className="w-4 h-4 text-black" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
-                            </div>
-                        </div>
-                    )
-                })}
-            </div>
-        </Card>
-    )
-}
-
-const SettingsView: React.FC = () => {
-  const { primaryCurrency, setPrimaryCurrency } = useFinance();
-  return (
-    <div className="space-y-8 animate-fade-in">
-        <h2 className="text-3xl font-bold text-white">Settings</h2>
-        <Card>
-            <h3 className="text-lg font-bold text-white mb-4">General Settings</h3>
-            <div className="space-y-4">
-                <div>
-                    <label htmlFor="primaryCurrency" className="block text-sm font-medium text-content-100 mb-1">Primary Currency</label>
-                    <p className="text-xs text-content-200 mb-2">This currency is used for aggregated values like Net Worth.</p>
-                    <select id="primaryCurrency" value={primaryCurrency} onChange={e => setPrimaryCurrency(e.target.value)} className="w-full max-w-xs bg-base-100 p-3 rounded-lg text-white border border-base-300">
-                        {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.symbol})</option>)}
-                    </select>
-                </div>
-            </div>
-        </Card>
-        <DashboardCustomizer />
-        <BottomNavCustomizer />
-        <CategoryManager />
-    </div>
-  );
-};
-
-const ReportsView: React.FC = () => {
-    const { transactions, categories, primaryCurrency, getCategoryById } = useFinance();
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    
-    const [startDate, setStartDate] = useState(formatInputDate(firstDayOfMonth));
-    const [endDate, setEndDate] = useState(formatInputDate(today));
-    const [reportData, setReportData] = useState<{
-        totalIncome: number;
-        totalExpenses: number;
-        netSavings: number;
-        spendingByCategory: { name: string, value: number }[];
-        incomeByCategory: { name: string, value: number }[];
-    } | null>(null);
-    const [aiAnalysis, setAiAnalysis] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-
-    const handleGenerateReport = useCallback(async () => {
-        setIsLoading(true);
-        setReportData(null);
-        setAiAnalysis('');
-        
-        const start = new Date(startDate);
-        const end = new Date(endDate + 'T23:59:59');
-
-        const relevantTransactions = transactions.filter(t => {
-            const tDate = new Date(t.date);
-            return tDate >= start && tDate <= end;
-        });
-
-        if (relevantTransactions.length === 0) {
-            setReportData({ totalIncome: 0, totalExpenses: 0, netSavings: 0, spendingByCategory: [], incomeByCategory: []});
-            setIsLoading(false);
-            return;
-        }
-
-        const totalIncome = relevantTransactions.filter(t => t.type === TransactionType.INCOME).reduce((sum, t) => sum + t.amount, 0);
-        const totalExpenses = relevantTransactions.filter(t => t.type === TransactionType.EXPENSE).reduce((sum, t) => sum + t.amount, 0);
-        const netSavings = totalIncome - totalExpenses;
-
-        const processCategories = (type: TransactionType) => {
-            const data: { [key: string]: { name: string; value: number } } = {};
-            relevantTransactions
-                .filter(t => t.type === type && t.categoryId)
-                .forEach(t => {
-                    const category = getCategoryById(t.categoryId);
-                    if (category) {
-                        if (!data[category.id]) {
-                            data[category.id] = { name: category.name, value: 0 };
-                        }
-                        data[category.id].value += t.amount;
-                    }
-                });
-            return Object.values(data).sort((a, b) => b.value - a.value);
-        }
-
-        const spendingByCategory = processCategories(TransactionType.EXPENSE);
-        const incomeByCategory = processCategories(TransactionType.INCOME);
-        
-        setReportData({ totalIncome, totalExpenses, netSavings, spendingByCategory, incomeByCategory });
-
-        const analysis = await generateFinancialReport(relevantTransactions, categories, startDate, endDate);
-        setAiAnalysis(analysis);
-
-        setIsLoading(false);
-    }, [startDate, endDate, transactions, categories, getCategoryById]);
-
-    const PIE_COLORS = ['#C084FC', '#818CF8', '#F59E0B', '#F87171', '#6366F1', '#34D399'];
-
-    const renderPrintableReport = () => (
-        <div className="printable-area space-y-6">
-             <div className="text-center mb-8">
-                <h1 className="text-4xl font-bold text-white print:text-black">Financial Report</h1>
-                <p className="text-lg text-content-200 print:text-gray-600">{formatDate(startDate)} &mdash; {formatDate(endDate)}</p>
-             </div>
-
-            {reportData && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <Card className="print:border print:shadow-none"><h4 className="font-semibold text-content-200 text-sm print:text-gray-500">Total Income</h4><p className="text-3xl font-bold text-accent-success mt-1">{formatCurrency(reportData.totalIncome, primaryCurrency)}</p></Card>
-                    <Card className="print:border print:shadow-none"><h4 className="font-semibold text-content-200 text-sm print:text-gray-500">Total Expenses</h4><p className="text-3xl font-bold text-accent-error mt-1">{formatCurrency(reportData.totalExpenses, primaryCurrency)}</p></Card>
-                    <Card className="print:border print:shadow-none"><h4 className="font-semibold text-content-200 text-sm print:text-gray-500">Net Savings</h4><p className={classNames("text-3xl font-bold mt-1", reportData.netSavings >= 0 ? 'text-accent-success' : 'text-accent-error')}>{formatCurrency(reportData.netSavings, primaryCurrency)}</p></Card>
-                </div>
-            )}
-            
-            {aiAnalysis && (
-                <Card className="print:border print:shadow-none"><h2 className="text-2xl font-bold text-white mb-4 print:text-black">AI-Powered Analysis</h2><div className="prose prose-invert max-w-none text-content-100 leading-relaxed print:prose-stone print:text-gray-800" dangerouslySetInnerHTML={{ __html: aiAnalysis.replace(/\n/g, '<br />') }}></div></Card>
-            )}
-
-             {reportData && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                     <Card className="print:border print:shadow-none">
-                        <h3 className="text-xl font-bold text-white mb-4 print:text-black">Expense Breakdown</h3>
-                        {reportData.spendingByCategory.length > 0 ? (
-                            <div className="space-y-3">
-                                {reportData.spendingByCategory.map((cat, i) => (
-                                    <div key={cat.name}><div className="flex justify-between text-sm mb-1"><span className="font-medium text-content-100 print:text-gray-700">{cat.name}</span><span className="font-semibold text-white print:text-black">{formatCurrency(cat.value, primaryCurrency)}</span></div><div className="w-full bg-base-300 rounded-full h-1.5"><div className="h-1.5 rounded-full" style={{ width: `${(cat.value / (reportData.totalExpenses || 1)) * 100}%`, backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}></div></div></div>
-                                ))}
-                            </div>
-                        ) : <p className="text-content-200 print:text-gray-600">No expenses recorded in this period.</p>}
-                    </Card>
-                    <Card className="print:border print:shadow-none">
-                        <h3 className="text-xl font-bold text-white mb-4 print:text-black">Income Sources</h3>
-                        {reportData.incomeByCategory.length > 0 ? (
-                             <div className="space-y-3">
-                                {reportData.incomeByCategory.map((cat, i) => (
-                                    <div key={cat.name}><div className="flex justify-between text-sm mb-1"><span className="font-medium text-content-100 print:text-gray-700">{cat.name}</span><span className="font-semibold text-white print:text-black">{formatCurrency(cat.value, primaryCurrency)}</span></div><div className="w-full bg-base-300 rounded-full h-1.5"><div className="h-1.5 rounded-full" style={{ width: `${(cat.value / (reportData.totalIncome || 1)) * 100}%`, backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}></div></div></div>
-                                ))}
-                            </div>
-                        ) : <p className="text-content-200 print:text-gray-600">No income recorded in this period.</p>}
-                    </Card>
-                </div>
-             )}
-        </div>
-    );
-    
-    return (
-        <div className="animate-fade-in space-y-6">
-            <div className="print:hidden">
-                <Card>
-                    <div className="flex flex-col md:flex-row gap-4 items-center">
-                        <div className="flex-grow w-full"><label className="text-sm text-content-200">Start Date</label><CustomDatePicker value={startDate} onChange={setStartDate} /></div>
-                        <div className="flex-grow w-full"><label className="text-sm text-content-200">End Date</label><CustomDatePicker value={endDate} onChange={setEndDate} /></div>
-                        <div className="w-full md:w-auto flex-shrink-0 pt-5"><Button onClick={handleGenerateReport} disabled={isLoading} className="w-full">{isLoading ? 'Generating...' : 'Generate Report'}</Button></div>
-                    </div>
-                </Card>
-            </div>
-            
-            {isLoading && <div className="text-center py-10"><p className="text-content-200">Generating your financial report...</p></div>}
-            
-            {!isLoading && !reportData && <div className="text-center py-10"><p className="text-content-200">Select a date range and generate a report to see your financial summary.</p></div>}
-
-            {reportData && (
-                <>
-                    <div className="flex justify-end print:hidden">
-                        <Button onClick={() => window.print()} variant="secondary">{ICONS.export} Print / Save PDF</Button>
-                    </div>
-                    {renderPrintableReport()}
-                </>
-            )}
-        </div>
-    );
-};
-
-const VIEW_TITLES: { [key in View]: string } = {
-  DASHBOARD: 'Dashboard', ACCOUNTS: 'Accounts', TRANSACTIONS: 'Transactions', BUDGETS: 'Budgets', GOALS: 'Financial Goals',
-  ASSETS: 'Assets', INVESTMENTS: 'Investments', SAVINGS: 'Savings', INSIGHTS: 'AI Insights', SETTINGS: 'Settings', SUBSCRIPTIONS: 'Subscriptions',
-  REPORTS: 'Financial Reports',
-};
-
-const BottomNavBar: React.FC<{
-    activeView: View;
-    setActiveView: (view: View) => void;
-    onMoreClick: () => void;
-    className?: string;
-}> = ({ activeView, setActiveView, onMoreClick, className }) => {
-    const { bottomNavViews } = useFinance();
-
-    const navItems = useMemo(() => {
-        return bottomNavViews
-            .map(viewId => allNavItems.find(item => item.view === viewId))
-            .filter((item): item is NavItemDef => !!item);
-    }, [bottomNavViews]);
-    
-    return (
-        <nav className={classNames("md:hidden fixed bottom-0 left-0 right-0 bg-base-200/50 backdrop-blur-lg border-t border-base-300 flex justify-around items-center z-40 h-20", className)}>
-            {navItems.map(item => (
-                <button
-                    key={item.view}
-                    onClick={() => setActiveView(item.view)}
-                    className={classNames(
-                        "flex flex-col items-center justify-center w-full h-full text-xs transition-colors pt-1",
-                        activeView === item.view ? 'text-white' : 'text-content-200 hover:text-white'
-                    )}
-                >
-                    <div className="w-6 h-6 mb-1">{item.icon}</div>
-                    <span className="mt-1">{item.label}</span>
-                </button>
-            ))}
-            <button
-                 onClick={onMoreClick}
-                 className="flex flex-col items-center justify-center w-full h-full text-xs text-content-200 hover:text-white transition-colors pt-1"
-            >
-                <div className="w-6 h-6 mb-1"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg></div>
-                <span className="mt-1">More</span>
-            </button>
-        </nav>
-    );
-};
-
-// APP COMPONENT
-export default function App() {
-  const [activeView, setActiveView] = useState<View>('DASHBOARD');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+const App: React.FC = () => {
   const { bottomNavViews } = useFinance();
+  const [currentView, setCurrentView] = useState<View>('DASHBOARD');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Global modals state
-  const [isAddEditTxModalOpen, setIsAddEditTxModalOpen] = useState(false);
-  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
-  const [prefilledTxData, setPrefilledTxData] = useState<Partial<Transaction> | undefined>(undefined);
+  // Modal states
+  const [isAddEditTransactionModalOpen, setAddEditTransactionModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | undefined>(undefined);
-  const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
+  const [prefilledData, setPrefilledData] = useState<Partial<Transaction> | undefined>(undefined);
+  const [isReceiptScannerModalOpen, setReceiptScannerModalOpen] = useState(false);
 
-  const openAddEditTxModal = (transaction?: Transaction) => {
-      setPrefilledTxData(undefined);
-      setEditingTransaction(transaction);
-      setIsAddEditTxModalOpen(true);
+  const openAddEditModal = (transaction?: Transaction, prefill?: Partial<Transaction>) => {
+    closeSidebar();
+    setEditingTransaction(transaction);
+    setPrefilledData(prefill);
+    setAddEditTransactionModalOpen(true);
+  };
+
+  const closeAddEditModal = () => {
+    setEditingTransaction(undefined);
+    setPrefilledData(undefined);
+    setAddEditTransactionModalOpen(false);
+  };
+
+  const openReceiptScanner = () => {
+    closeSidebar();
+    setReceiptScannerModalOpen(true);
   };
   
-  const openScannerModal = () => setIsScannerModalOpen(true);
-  
-  const closeTxModal = () => {
-      setPrefilledTxData(undefined);
-      setEditingTransaction(undefined);
-      setIsAddEditTxModalOpen(false);
-      setIsScannerModalOpen(false);
-  };
+  const closeReceiptScanner = () => {
+    setReceiptScannerModalOpen(false);
+  }
 
   const handleScanComplete = (data: Partial<Transaction>) => {
-      setIsScannerModalOpen(false);
-      setPrefilledTxData(data);
-      setEditingTransaction(undefined);
-      setIsAddEditTxModalOpen(true);
+    closeReceiptScanner();
+    openAddEditModal(undefined, data);
   };
 
+  const closeSidebar = () => setIsSidebarOpen(false);
+
   const renderView = () => {
-    switch (activeView) {
+    const PlaceholderView: React.FC<{title: string}> = ({title}) => (
+        <div className="flex items-center justify-center h-full">
+            <Card className="text-center">
+                <h2 className="text-2xl font-bold text-white">{title}</h2>
+                <p className="text-content-200 mt-2">This feature is coming soon!</p>
+            </Card>
+        </div>
+    );
+    switch (currentView) {
       case 'DASHBOARD': return <DashboardView />;
       case 'ACCOUNTS': return <AccountsView />;
-      case 'TRANSACTIONS': return <TransactionsView openAddEditModal={openAddEditTxModal} />;
-      case 'BUDGETS': return <BudgetsView />;
-      case 'GOALS': return <GoalsView />;
-      case 'ASSETS': return <AssetsView />;
-      case 'SUBSCRIPTIONS': return <SubscriptionsView />;
-      case 'INSIGHTS': return <InsightsView />;
-      case 'SETTINGS': return <SettingsView />;
-      case 'INVESTMENTS': return <InvestmentsView />;
-      case 'SAVINGS': return <SavingsView />;
-      case 'REPORTS': return <ReportsView />;
+      case 'TRANSACTIONS': return <TransactionsView openAddEditModal={openAddEditModal} />;
+      case 'INVESTMENTS': return <PlaceholderView title="Investments"/>;
+      case 'SAVINGS': return <PlaceholderView title="Savings"/>;
+      case 'ASSETS': return <PlaceholderView title="Assets"/>;
+      case 'SUBSCRIPTIONS': return <PlaceholderView title="Subscriptions"/>;
+      case 'BUDGETS': return <PlaceholderView title="Budgets"/>;
+      case 'GOALS': return <PlaceholderView title="Goals"/>;
+      case 'REPORTS': return <PlaceholderView title="Reports"/>;
+      case 'INSIGHTS': return <PlaceholderView title="AI Insights"/>;
+      case 'SETTINGS': return <PlaceholderView title="Settings"/>;
       default: return <DashboardView />;
     }
   };
 
-  const NavItem: React.FC<{ view: View; label: string; icon: React.ReactNode }> = ({ view, label, icon }) => (
-    <button onClick={() => { setActiveView(view); setIsSidebarOpen(false); setIsMoreSheetOpen(false); }}
-      className={classNames('flex items-center space-x-4 px-4 py-3 rounded-xl w-full text-left transition-colors', activeView === view ? 'bg-base-300 text-white font-semibold' : 'text-content-200 hover:bg-base-300/50 hover:text-white')}>
-      {icon}<span>{label}</span>
+  const NavItem: React.FC<{ item: NavItemDef; isBottomNav?: boolean }> = ({ item, isBottomNav }) => (
+    <button
+      onClick={() => { setCurrentView(item.view); closeSidebar(); }}
+      className={classNames(
+        "flex items-center gap-4 w-full text-left transition-colors duration-200 rounded-lg",
+        isBottomNav ? "flex-col justify-center text-xs p-1 h-full" : "p-3 text-base",
+        currentView === item.view
+          ? (isBottomNav ? "text-brand-primary" : "bg-base-300 text-white font-semibold")
+          : "text-content-200 hover:bg-base-200 hover:text-white"
+      )}
+    >
+      <span className={isBottomNav ? "" : "w-6 h-6"}>{item.icon}</span>
+      <span>{item.label}</span>
     </button>
   );
 
-  const MobileHeader: React.FC<{ onMenuClick: () => void; title: string; className?: string; }> = ({ onMenuClick, title, className }) => (
-      <header className={classNames("md:hidden bg-base-100/50 backdrop-blur-sm p-4 flex items-center gap-4 sticky top-0 z-30 border-b border-base-300", className)}>
-        <button onClick={onMenuClick} className="text-content-100 hover:text-white" aria-label="Open menu"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg></button>
-        <h1 className="text-xl font-bold text-white">{title}</h1>
-      </header>
+  const sidebarContent = (
+    <div className="p-4 space-y-4 h-full flex flex-col">
+      <div className="flex items-center gap-2 px-2 flex-shrink-0">
+          {ICONS.logo}
+          <h1 className="text-2xl font-bold text-white">FinanSage</h1>
+      </div>
+      <nav className="mt-8 space-y-1 flex-grow overflow-y-auto">
+          {mainNavItems.map(item => <NavItem key={item.view} item={item} />)}
+          <hr className="border-base-300 my-4" />
+          <h3 className="px-3 text-xs font-semibold text-content-200 uppercase tracking-wider mb-2">More</h3>
+          {moreNavItems.map(item => <NavItem key={item.view} item={item} />)}
+      </nav>
+      <div className="flex-shrink-0">
+        <hr className="border-base-300 my-2" />
+        <NavItem item={{ view: 'SETTINGS', label: 'Settings', icon: ICONS.settings }} />
+      </div>
+    </div>
   );
-  
-  const DesktopHeader: React.FC<{ title: string, className?: string; }> = ({ title, className }) => (
-      <header className={classNames("hidden md:block p-6", className)}>
-        <h1 className="text-3xl font-bold text-white">{title}</h1>
-      </header>
-  );
-  
+
   return (
-    <div className="flex h-screen bg-base-100">
-      {isSidebarOpen && <div className="md:hidden fixed inset-0 bg-black bg-opacity-60 z-40" onClick={() => setIsSidebarOpen(false)}></div>}
-      <aside className={classNames("fixed inset-y-0 left-0 w-72 bg-base-200 p-6 flex flex-col z-50 transform transition-transform duration-300 ease-in-out print:hidden", "md:relative md:translate-x-0", isSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
-        <div className="flex items-center space-x-3 mb-10 px-2">{ICONS.logo}<span className="text-2xl font-bold text-white">FinanSage</span></div>
-        <nav className="space-y-2 flex-grow overflow-y-auto">
-            {mainNavItems.map(item => <NavItem key={item.view} {...item} />)}
-            <div className="pt-4 mt-2 border-t border-base-300">
-                {moreNavItems.map(item => <NavItem key={item.view} {...item} />)}
-            </div>
-        </nav>
-        <div className="mt-auto"><NavItem view="SETTINGS" label="Settings" icon={ICONS.settings} /></div>
+    <div className="min-h-screen bg-base-100 text-content-100 font-sans flex">
+      {/* Sidebar for desktop */}
+      <aside className="hidden md:block w-64 bg-base-100/70 backdrop-blur-xl border-r border-base-300 flex-shrink-0">
+          {sidebarContent}
       </aside>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <MobileHeader onMenuClick={() => setIsSidebarOpen(true)} title={VIEW_TITLES[activeView]} className="print:hidden"/>
-        <DesktopHeader title={VIEW_TITLES[activeView]} className="print:hidden"/>
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8">{renderView()}</main>
+      {/* Mobile sidebar (off-canvas) */}
+      <div className={classNames(
+          "fixed inset-0 z-50 md:hidden transition-transform duration-300",
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      )}>
+        <div className="absolute inset-0 bg-black/60" onClick={closeSidebar}></div>
+        <aside className="relative w-64 bg-base-200 h-full">{sidebarContent}</aside>
       </div>
-      
-      <BottomNavBar activeView={activeView} setActiveView={setActiveView} onMoreClick={() => setIsMoreSheetOpen(true)} className="print:hidden" />
-      <FloatingActionButton onAddManually={() => openAddEditTxModal()} onScanReceipt={openScannerModal} className="print:hidden" />
-      
-      {/* Global Modals */}
-      <Modal isOpen={isAddEditTxModalOpen} onClose={closeTxModal} title={editingTransaction ? "Edit Transaction" : prefilledTxData?.description ? "Confirm Scanned Transaction" : "Add Transaction"}>
-        <TransactionForm onClose={closeTxModal} existingTransaction={editingTransaction} prefilledData={prefilledTxData} />
-      </Modal>
-      <Modal isOpen={isScannerModalOpen} onClose={closeTxModal} title="Scan Receipt">
-        <ReceiptScannerModal onScanComplete={handleScanComplete} />
-      </Modal>
-      <BottomSheet isOpen={isMoreSheetOpen} onClose={() => setIsMoreSheetOpen(false)} title="More Sections">
-          <div className="space-y-2">
-            {allNavItems.filter(item => !bottomNavViews.includes(item.view)).map(item => <NavItem key={item.view} {...item} />)}
-             <div className="pt-2 mt-2 border-t border-base-300">
-                <NavItem view="SETTINGS" label="Settings" icon={ICONS.settings} />
+
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto h-screen pb-24 md:pb-8">
+        {/* Mobile Header */}
+        <header className="md:hidden flex justify-between items-center mb-6">
+            <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-white">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+            <div className="flex items-center gap-2">
+                {ICONS.logo}
+                <h1 className="text-xl font-bold text-white">FinanSage</h1>
             </div>
-          </div>
+            <div className="w-8"></div>
+        </header>
+
+        {renderView()}
+      </main>
+
+      <FloatingActionButton 
+        onAddManually={() => openAddEditModal()}
+        onScanReceipt={openReceiptScanner}
+      />
+
+      {/* Bottom Navigation for mobile */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-base-200/80 backdrop-blur-lg border-t border-base-300 grid grid-cols-4 gap-1 h-20">
+        {bottomNavViews.map(view => {
+          const navItem = allNavItems.find(item => item.view === view);
+          return navItem ? <NavItem key={view} item={navItem} isBottomNav /> : null;
+        })}
+      </nav>
+      
+      {/* Modals */}
+      <Modal 
+        isOpen={isAddEditTransactionModalOpen} 
+        onClose={closeAddEditModal}
+        title={editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
+      >
+        <TransactionForm 
+          onClose={closeAddEditModal} 
+          existingTransaction={editingTransaction} 
+          prefilledData={prefilledData} 
+        />
+      </Modal>
+
+      <BottomSheet
+        isOpen={isReceiptScannerModalOpen}
+        onClose={closeReceiptScanner}
+        title="Scan Receipt"
+      >
+        <ReceiptScannerModal onScanComplete={handleScanComplete} />
       </BottomSheet>
     </div>
   );
-}
+};
+
+export default App;
