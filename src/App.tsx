@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard } from './types';
-import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, NavItemDef, dashboardCardDefs } from './constants';
-import { getFinancialInsights, suggestCategory, fetchProductDetailsFromUrl, processReceiptImage, findSubscriptions, generateFinancialReport } from './services/geminiService';
+import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, SavingsInstrument, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard } from './types';
+import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, NavItemDef } from './constants';
+import { suggestCategory, processReceiptImage } from './services/geminiService';
 
 // UTILITY FUNCTIONS
 const classNames = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -29,16 +29,6 @@ const fileToBase64 = (file: File): Promise<string> => {
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = error => reject(error);
     });
-};
-const getMonthsBetween = (startDateStr: string, endDateStr: string): number => {
-    const start = new Date(startDateStr);
-    const end = new Date(endDateStr);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
-    
-    let months = (end.getFullYear() - start.getFullYear()) * 12;
-    months -= start.getMonth();
-    months += end.getMonth();
-    return months <= 0 ? 0 : months + 1;
 };
 
 // LOCAL STORAGE HOOK
