@@ -22,7 +22,7 @@ const formatInputDate = (date?: string | Date) => {
 };
 const formatCurrency = (amount: number, currencyCode: string) => {
   const currency = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[7]; // Default to INR
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.code }).format(amount);
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.code, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 };
 const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -467,6 +467,7 @@ const CustomDatePicker: React.FC<{
     onChange: (date: string) => void;
 }> = ({ value, onChange }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [view, setView] = useState<'days' | 'years'>('days');
     const [currentDate, setCurrentDate] = useState(value ? new Date(value) : new Date());
     const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -480,10 +481,7 @@ const CustomDatePicker: React.FC<{
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
-    const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
-    
-    const selectedDate = new Date(value);
+    const selectedDate = value ? new Date(value) : null;
     
     const changeMonth = (offset: number) => {
         setCurrentDate(prev => {
@@ -492,35 +490,54 @@ const CustomDatePicker: React.FC<{
             return newDate;
         });
     };
+    
+    const changeYear = (offset: number) => {
+        setCurrentDate(prev => {
+            const newDate = new Date(prev);
+            newDate.setFullYear(newDate.getFullYear() + offset);
+            return newDate;
+        });
+    }
 
     const handleDayClick = (day: number) => {
         const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
         onChange(formatInputDate(newDate));
         setIsOpen(false);
     };
+    
+    const handleYearClick = (year: number) => {
+        setCurrentDate(prev => {
+            const newDate = new Date(prev);
+            newDate.setFullYear(year);
+            return newDate;
+        });
+        setView('days');
+    };
 
-    const renderCalendar = () => {
+    const renderDays = () => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
-        const days = daysInMonth(year, month);
-        const firstDay = firstDayOfMonth(year, month);
-        const blanks = Array(firstDay).fill(null);
-        const dayCells = Array.from({ length: days }, (_, i) => i + 1);
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDayOfMonth = new Date(year, month, 1).getDay();
+        const blanks = Array(firstDayOfMonth).fill(null);
+        const dayCells = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
         return (
-            <div className="absolute top-full mt-2 w-72 bg-base-200/90 backdrop-blur-md border border-base-300 rounded-xl shadow-2xl p-4 z-50 animate-slide-up">
+            <>
                 <div className="flex justify-between items-center mb-4">
                     <button type="button" onClick={() => changeMonth(-1)} className="p-1 rounded-full hover:bg-base-300">{ICONS['chevron-left']}</button>
-                    <div className="font-bold text-white">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</div>
+                    <div onClick={() => setView('years')} className="font-bold text-white cursor-pointer hover:text-brand-gradient-to">
+                        {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                    </div>
                     <button type="button" onClick={() => changeMonth(1)} className="p-1 rounded-full hover:bg-base-300">{ICONS['chevron-right']}</button>
                 </div>
                 <div className="grid grid-cols-7 gap-1 text-center text-xs text-content-200">
-                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => <div key={d}>{d}</div>)}
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => <div key={d} className="w-8">{d}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-1 mt-2">
                     {blanks.map((_, i) => <div key={`blank-${i}`}></div>)}
                     {dayCells.map(day => {
-                        const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
+                        const isSelected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
                         return (
                             <button
                                 type="button"
@@ -536,10 +553,42 @@ const CustomDatePicker: React.FC<{
                         );
                     })}
                 </div>
-            </div>
-        );
+            </>
+        )
     };
     
+    const renderYears = () => {
+        const currentYear = currentDate.getFullYear();
+        const startYear = Math.floor(currentYear / 10) * 10 - 1;
+
+        return (
+             <>
+                <div className="flex justify-between items-center mb-4">
+                    <button type="button" onClick={() => changeYear(-10)} className="p-1 rounded-full hover:bg-base-300">{ICONS['chevron-left']}</button>
+                    <div className="font-bold text-white">
+                        {startYear + 1} - {startYear + 10}
+                    </div>
+                    <button type="button" onClick={() => changeYear(10)} className="p-1 rounded-full hover:bg-base-300">{ICONS['chevron-right']}</button>
+                </div>
+                <div className="grid grid-cols-4 gap-2 mt-2">
+                    {Array.from({length: 12}, (_, i) => startYear + i).map(year => (
+                         <button
+                            type="button"
+                            key={year}
+                            onClick={() => handleYearClick(year)}
+                            className={classNames(
+                                "p-2 rounded-lg transition-colors duration-200",
+                                year === currentYear ? "bg-brand-primary text-black font-bold" : "text-white hover:bg-base-300"
+                            )}
+                        >
+                            {year}
+                        </button>
+                    ))}
+                </div>
+            </>
+        )
+    }
+
     const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
 
     return (
@@ -551,7 +600,11 @@ const CustomDatePicker: React.FC<{
                 onClick={() => setIsOpen(p => !p)}
                 className={classNames(inputClasses, "cursor-pointer")}
             />
-            {isOpen && renderCalendar()}
+            {isOpen && (
+                 <div className="absolute top-full mt-2 w-72 bg-base-200/90 backdrop-blur-md border border-base-300 rounded-xl shadow-2xl p-4 z-50 animate-slide-up">
+                    {view === 'days' ? renderDays() : renderYears()}
+                 </div>
+            )}
         </div>
     );
 };
@@ -1567,6 +1620,86 @@ const InvestmentForm: React.FC<{onClose: () => void; existingInvestment?: Invest
     );
 };
 
+const GroupedInvestmentCard: React.FC<{
+    group: Investment[],
+    onEdit: (investment: Investment) => void,
+    onDelete: (id: string) => void,
+    primaryCurrency: string
+}> = ({ group, onEdit, onDelete, primaryCurrency }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const summary = useMemo(() => {
+        const first = group[0];
+        const totalUnits = group.reduce((sum, i) => sum + i.units, 0);
+        const totalInvested = group.reduce((sum, i) => sum + (i.purchasePrice * i.units), 0);
+        const currentPrice = first.currentPrice;
+        const totalCurrentValue = totalUnits * currentPrice;
+        const pAndL = totalCurrentValue - totalInvested;
+        const pAndLPercent = totalInvested > 0 ? (pAndL / totalInvested) * 100 : 0;
+        const avgBuyPrice = totalUnits > 0 ? totalInvested / totalUnits : 0;
+        return {
+            name: first.name,
+            type: first.type,
+            totalUnits,
+            totalInvested,
+            currentPrice,
+            totalCurrentValue,
+            pAndL,
+            pAndLPercent,
+            avgBuyPrice
+        };
+    }, [group]);
+
+    return (
+        <Card className="p-0">
+            <div className="p-5">
+                <div onClick={() => setIsExpanded(p => !p)} className="flex justify-between items-start gap-2 cursor-pointer">
+                    <div className="flex-1">
+                        <h3 className="text-lg font-bold text-white truncate pr-2" title={summary.name}>{summary.name}</h3>
+                        <span className="text-xs bg-base-300 text-content-100 px-1.5 py-0.5 rounded">{summary.type}</span>
+                    </div>
+                    <div className="flex flex-col items-end flex-shrink-0">
+                         <p className={classNames("text-xl font-bold", summary.pAndL >= 0 ? 'text-accent-success':'text-accent-error')}>
+                            {summary.pAndL >= 0 ? '+' : ''}{formatCurrency(summary.pAndL, primaryCurrency)}
+                         </p>
+                         <p className={classNames("text-sm font-semibold", summary.pAndL >= 0 ? 'text-accent-success':'text-accent-error')}>
+                            ({summary.pAndLPercent.toFixed(2)}%)
+                         </p>
+                    </div>
+                </div>
+                 <div className="mt-3 pt-3 border-t border-base-300 grid grid-cols-2 md:grid-cols-4 gap-y-2 gap-x-4 text-sm">
+                    <div><span className="text-content-200 block">Current Value</span> <span className="font-semibold text-white text-base">{formatCurrency(summary.totalCurrentValue, primaryCurrency)}</span></div>
+                    <div><span className="text-content-200 block">Total Invested</span> <span className="font-semibold text-white text-base">{formatCurrency(summary.totalInvested, primaryCurrency)}</span></div>
+                    <div><span className="text-content-200 block">Total Units</span> <span className="font-semibold text-white text-base">{summary.totalUnits.toFixed(4)}</span></div>
+                    <div><span className="text-content-200 block">Avg. Price</span> <span className="font-semibold text-white text-base">{formatCurrency(summary.avgBuyPrice, primaryCurrency)}</span></div>
+                </div>
+            </div>
+            {isExpanded && (
+                <div className="animate-fade-in border-t border-base-300 bg-base-100/30 px-5 py-3">
+                    <h4 className="font-bold text-white mb-2">Purchase History</h4>
+                    <div className="space-y-2 text-sm">
+                         <div className="hidden md:grid grid-cols-5 gap-2 text-xs text-content-200 font-semibold border-b border-base-300 pb-1 mb-1">
+                             <span>Date</span><span>Units</span><span>Price</span><span className="text-right">Invested</span><span></span>
+                         </div>
+                        {group.map(inv => (
+                            <div key={inv.id} className="grid grid-cols-3 md:grid-cols-5 gap-2 items-center p-2 rounded-md hover:bg-base-200/50">
+                                <div className="md:col-span-1"><span className="md:hidden text-xs text-content-200">Date: </span>{formatDate(inv.purchaseDate)}</div>
+                                <div className="md:col-span-1"><span className="md:hidden text-xs text-content-200">Units: </span>{inv.units}</div>
+                                <div className="md:col-span-1"><span className="md:hidden text-xs text-content-200">Price: </span>{formatCurrency(inv.purchasePrice, primaryCurrency)}</div>
+                                <div className="col-span-2 md:col-span-1 text-right"><span className="md:hidden text-xs text-content-200">Invested: </span>{formatCurrency(inv.purchasePrice * inv.units, primaryCurrency)}</div>
+                                <div className="col-span-1 flex justify-end gap-1.5">
+                                    <Button variant="secondary" className="!p-1.5 h-auto" onClick={() => onEdit(inv)}>{ICONS.edit}</Button>
+                                    <Button variant="danger" className="!p-1.5 h-auto" onClick={() => onDelete(inv.id)}>{ICONS.trash}</Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </Card>
+    )
+};
+
+
 const InvestmentsView: React.FC = () => {
     const { investments, deleteInvestment, primaryCurrency } = useFinance();
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1575,9 +1708,43 @@ const InvestmentsView: React.FC = () => {
     const openModal = (investment?: Investment) => { setEditingInvestment(investment); setIsModalOpen(true); };
     const closeModal = () => { setEditingInvestment(undefined); setIsModalOpen(false); };
     const filteredInvestments = useMemo(() => investments.filter(inv => inv.name.toLowerCase().includes(searchTerm.toLowerCase())), [investments, searchTerm]);
-    const totalInvested = useMemo(() => investments.reduce((sum, i) => sum + i.purchasePrice * i.units, 0), [investments]);
-    const totalCurrentValue = useMemo(() => investments.reduce((sum, i) => sum + i.currentPrice * i.units, 0), [investments]);
-    const totalPL = totalCurrentValue - totalInvested;
+    
+    const { totalInvested, totalCurrentValue, totalPL } = useMemo(() => {
+        const totalInvested = investments.reduce((sum, i) => sum + i.purchasePrice * i.units, 0);
+        
+        // To calculate total current value, we need to group by name first to avoid multiplying units by same current price multiple times
+        const uniqueInvestments: {[key: string]: {totalUnits: number, currentPrice: number}} = {};
+        investments.forEach(inv => {
+            if(!uniqueInvestments[inv.name]) {
+                uniqueInvestments[inv.name] = { totalUnits: 0, currentPrice: inv.currentPrice };
+            }
+            uniqueInvestments[inv.name].totalUnits += inv.units;
+        });
+
+        const totalCurrentValue = Object.values(uniqueInvestments).reduce((sum, i) => sum + i.totalUnits * i.currentPrice, 0);
+        const totalPL = totalCurrentValue - totalInvested;
+        return { totalInvested, totalCurrentValue, totalPL };
+
+    }, [investments]);
+
+    const groupedInvestments = useMemo(() => {
+        const groups: { [key: string]: Investment[] } = filteredInvestments.reduce((acc, inv) => {
+            const key = inv.name.trim().toLowerCase();
+            if (!acc[key]) {
+                acc[key] = [];
+            }
+            acc[key].push(inv);
+            return acc;
+        }, {} as { [key: string]: Investment[] });
+    
+        Object.values(groups).forEach(group => {
+            group.sort((a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime());
+        });
+    
+        return Object.values(groups);
+    }, [filteredInvestments]);
+
+
     return (
         <div className="animate-fade-in">
              <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
@@ -1585,11 +1752,21 @@ const InvestmentsView: React.FC = () => {
                  <div className="flex items-center gap-3 w-full md:w-auto"><div className="relative flex-grow"><input type="text" placeholder="Search investments..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-base-200/80 p-3 pl-10 rounded-xl text-white border border-base-300" /><div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-200">{ICONS.search}</div></div><Button onClick={() => openModal()} className="flex-shrink-0">{ICONS.plus}<span className="hidden sm:inline">Add Investment</span></Button></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><Card><h4 className="font-semibold text-content-200 text-sm">Total Invested</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalInvested, primaryCurrency)}</p></Card><Card><h4 className="font-semibold text-content-200 text-sm">Current Value</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalCurrentValue, primaryCurrency)}</p></Card><Card hasGlow={totalPL !== 0}><h4 className="font-semibold text-content-200 text-sm">Overall P/L</h4><p className={classNames("text-2xl font-bold mt-1", totalPL >= 0 ? 'text-accent-success':'text-accent-error')}>{totalPL >= 0 ? '+' : ''}{formatCurrency(totalPL, primaryCurrency)}</p></Card></div>
-            {filteredInvestments.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredInvestments.map(inv => { const invested = inv.purchasePrice * inv.units; const currentValue = inv.currentPrice * inv.units; const pAndL = currentValue - invested; return (
-                    <Card key={inv.id}><div className="flex flex-col h-full"><div className="flex justify-between items-start gap-2"><div className="flex-1"><h3 className="text-lg font-bold text-white truncate pr-2" title={inv.name}>{inv.name}</h3><span className="text-xs bg-base-300 text-content-100 px-1.5 py-0.5 rounded">{inv.type}</span></div><div className="flex gap-1.5 flex-shrink-0"><Button variant="secondary" className="p-1.5" onClick={() => openModal(inv)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Are you sure you want to delete ${inv.name}?`) && deleteInvestment(inv.id)}>{ICONS.trash}</Button></div></div><div className="flex-grow mt-3 pt-3 border-t border-base-300 grid grid-cols-2 gap-y-2 gap-x-4 text-sm"><div><span className="text-content-200 block">Invested</span> <span className="font-semibold text-white text-base">{formatCurrency(invested, primaryCurrency)}</span></div><div><span className="text-content-200 block">Current Value</span> <span className="font-semibold text-white text-base">{formatCurrency(currentValue, primaryCurrency)}</span></div><div><span className="text-content-200 block">P/L</span> <span className={classNames("font-semibold text-base", pAndL >= 0 ? 'text-accent-success':'text-accent-error')}>{pAndL >= 0 ? '+' : ''}{formatCurrency(pAndL, primaryCurrency)}</span></div><div><span className="text-content-200 block">Units</span> <span className="font-semibold text-white text-base">{inv.units}</span></div></div></div></Card>
-                )})}</div>
+            
+            {groupedInvestments.length > 0 ? (
+                <div className="space-y-6">
+                    {groupedInvestments.map((group) => (
+                       <GroupedInvestmentCard 
+                          key={group[0].name}
+                          group={group}
+                          onEdit={openModal}
+                          onDelete={(id) => window.confirm('Are you sure you want to delete this purchase entry?') && deleteInvestment(id)}
+                          primaryCurrency={primaryCurrency}
+                       />
+                    ))}
+                </div>
             ) : <div className="text-center py-16"><p className="text-content-200">{investments.length > 0 ? "No investments match search." : "No investments found."}</p></div>}
+            
             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingInvestment ? 'Edit Investment' : 'Add Investment'}><InvestmentForm onClose={closeModal} existingInvestment={editingInvestment}/></Modal>
         </div>
     );
