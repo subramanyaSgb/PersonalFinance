@@ -1,5 +1,5 @@
 import React from 'react';
-import { Category, Currency, TransactionType, AssetCategory, View } from './types';
+import { Category, Currency, TransactionType, AssetCategory, View, DashboardCard } from './types';
 
 export const CURRENCIES: Currency[] = [
     { code: 'USD', name: 'US Dollar', symbol: '$' },
@@ -133,3 +133,17 @@ export const moreNavItems: NavItemDef[] = [
 ];
 
 export const allNavItems = [...mainNavItems, ...moreNavItems];
+
+export interface DashboardCardDef {
+  key: DashboardCard;
+  label: string;
+  description: string;
+}
+
+export const dashboardCardDefs: DashboardCardDef[] = [
+  { key: 'NET_WORTH', label: 'Net Worth & Accounts', description: 'Shows your total net worth and a summary of your accounts.' },
+  { key: 'MONTHLY_SUMMARY', label: 'Monthly Summary', description: 'Displays your total income and expenses for the current month.' },
+  { key: 'SPENDING_CATEGORY', label: 'Spending by Category', description: 'A breakdown of your spending across different categories.' },
+  { key: 'RECENT_TRANSACTIONS', label: 'Recent Transactions', description: 'A list of your 5 most recent transactions.' },
+  { key: 'BUDGET_STATUS', label: 'Budget Status', description: 'Tracks your spending against your set budgets.' },
+];

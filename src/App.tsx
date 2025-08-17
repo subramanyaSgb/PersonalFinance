@@ -1,9 +1,6 @@
-
-
-
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry } from './types';
-import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, NavItemDef } from './constants';
+import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard } from './types';
+import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, NavItemDef, dashboardCardDefs } from './constants';
 import { getFinancialInsights, suggestCategory, fetchProductDetailsFromUrl, processReceiptImage, findSubscriptions } from './services/geminiService';
 
 // UTILITY FUNCTIONS
@@ -96,6 +93,8 @@ interface AppContextType {
   setPrimaryCurrency: React.Dispatch<React.SetStateAction<string>>;
   bottomNavViews: View[];
   setBottomNavViews: React.Dispatch<React.SetStateAction<View[]>>;
+  dashboardCards: { [key in DashboardCard]?: boolean };
+  setDashboardCards: React.Dispatch<React.SetStateAction<{ [key in DashboardCard]?: boolean }>>;
   getCategoryById: (id: string) => Category | undefined;
   getAccountById: (id: string) => Account | undefined;
   getAssetCategoryById: (id: string) => AssetCategory | undefined;
@@ -142,6 +141,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [netWorthHistory, setNetWorthHistory] = useLocalStorage<NetWorthHistoryEntry[]>('finansage_netWorthHistory', []);
   const [primaryCurrency, setPrimaryCurrency] = useLocalStorage<string>('finansage_primaryCurrency', 'INR');
   const [bottomNavViews, setBottomNavViews] = useLocalStorage<View[]>('finansage_bottomNavViews', ['DASHBOARD', 'TRANSACTIONS', 'ACCOUNTS', 'ASSETS']);
+
+  const initialDashboardCards: { [key in DashboardCard]: boolean } = {
+      NET_WORTH: true,
+      MONTHLY_SUMMARY: true,
+      SPENDING_CATEGORY: true,
+      RECENT_TRANSACTIONS: true,
+      BUDGET_STATUS: true,
+  };
+  const [dashboardCards, setDashboardCards] = useLocalStorage<{ [key in DashboardCard]?: boolean }>('finansage_dashboardCards', initialDashboardCards);
 
   useEffect(() => {
     if (categories.length === 0) {
@@ -334,6 +342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     netWorthHistory,
     primaryCurrency, setPrimaryCurrency,
     bottomNavViews, setBottomNavViews,
+    dashboardCards, setDashboardCards,
     getCategoryById, getAccountById, getAssetCategoryById,
     addTransaction, updateTransaction, deleteTransaction,
     addAccount, updateAccount, deleteAccount,
@@ -669,7 +678,7 @@ const FloatingActionButton: React.FC<{
 // VIEW COMPONENTS
 
 const DashboardView: React.FC = () => {
-  const { transactions, accounts, budgets, primaryCurrency, getCategoryById, getAccountById, netWorthHistory } = useFinance();
+  const { transactions, accounts, budgets, primaryCurrency, getCategoryById, getAccountById, netWorthHistory, dashboardCards } = useFinance();
   const [isNetWorthVisible, setIsNetWorthVisible] = useState(true);
   
   const netWorth = useMemo(() => netWorthHistory.length > 0 ? netWorthHistory[netWorthHistory.length - 1].value : 0, [netWorthHistory]);
@@ -725,131 +734,159 @@ const DashboardView: React.FC = () => {
     .filter(t => t.type === TransactionType.EXPENSE && new Date(t.date).getMonth() === new Date().getMonth())
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0), [transactions]);
 
+  const isDashboardEmpty = Object.values(dashboardCards || {}).every(v => !v);
+
+  if (isDashboardEmpty) {
+    return (
+      <div className="text-center py-20 animate-fade-in">
+        <p className="text-content-200">Your dashboard is empty.</p>
+        <p className="text-content-200 mt-2">You can enable cards in the Settings page.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-         <Card className="md:col-span-2 lg:col-span-4" hasGlow>
-            <div className="flex justify-between items-start">
-                <div>
-                    <div className="flex items-center gap-2">
-                         <h4 className="font-semibold text-content-200 text-sm">Total Net Worth</h4>
-                         <button onClick={() => setIsNetWorthVisible(p => !p)} className="text-content-200 hover:text-white">
-                            {isNetWorthVisible ? ICONS['eye-slash'] : ICONS.eye}
-                         </button>
-                    </div>
-                    <p className="text-5xl font-extrabold text-white mt-2">
-                        {isNetWorthVisible ? formatCurrency(netWorth, primaryCurrency) : '••••••••'}
-                    </p>
-                </div>
-            </div>
-          
-          <div className="mt-4 max-h-48 overflow-y-auto pr-2">
-            <div className="space-y-1 animate-fade-in">
-                {accounts.length > 0 ? accounts
-                    .sort((a, b) => b.balance - a.balance)
-                    .map(acc => (
-                    <div key={acc.id} className="flex justify-between items-center text-sm p-2 rounded-lg hover:bg-base-300/50 transition-colors">
-                        <div>
-                            <p className="font-semibold text-white">{acc.name}</p>
-                            <p className="text-xs text-content-200">{acc.type}</p>
+         {dashboardCards?.NET_WORTH && (
+            <Card className="md:col-span-2 lg:col-span-4" hasGlow>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <div className="flex items-center gap-2">
+                             <h4 className="font-semibold text-content-200 text-sm">Total Net Worth</h4>
+                             <button onClick={() => setIsNetWorthVisible(p => !p)} className="text-content-200 hover:text-white">
+                                {isNetWorthVisible ? ICONS['eye-slash'] : ICONS.eye}
+                             </button>
                         </div>
-                        <p className={classNames("font-medium", acc.balance >= 0 ? 'text-white' : 'text-accent-error')}>
-                            {isNetWorthVisible ? formatCurrency(acc.balance, acc.currency) : '••••'}
+                        <p className="text-5xl font-extrabold text-white mt-2">
+                            {isNetWorthVisible ? formatCurrency(netWorth, primaryCurrency) : '••••••••'}
                         </p>
                     </div>
-                )) : <p className="text-content-200 text-center py-10">No accounts to display.</p>}
+                </div>
+              
+              <div className="mt-4 max-h-48 overflow-y-auto pr-2">
+                <div className="space-y-1 animate-fade-in">
+                    {accounts.length > 0 ? accounts
+                        .sort((a, b) => b.balance - a.balance)
+                        .map(acc => (
+                        <div key={acc.id} className="flex justify-between items-center text-sm p-2 rounded-lg hover:bg-base-300/50 transition-colors">
+                            <div>
+                                <p className="font-semibold text-white">{acc.name}</p>
+                                <p className="text-xs text-content-200">{acc.type}</p>
+                            </div>
+                            <p className={classNames("font-medium", acc.balance >= 0 ? 'text-white' : 'text-accent-error')}>
+                                {isNetWorthVisible ? formatCurrency(acc.balance, acc.currency) : '••••'}
+                            </p>
+                        </div>
+                    )) : <p className="text-content-200 text-center py-10">No accounts to display.</p>}
+                </div>
             </div>
-        </div>
-        </Card>
-        <Card className="lg:col-span-2">
-          <h4 className="font-semibold text-content-200 text-sm">Income this month</h4>
-          <p className="text-3xl font-bold text-accent-success mt-1">{formatCurrency(monthlyIncome, primaryCurrency)}</p>
-        </Card>
-        <Card className="lg:col-span-2">
-          <h4 className="font-semibold text-content-200 text-sm">Expenses this month</h4>
-          <p className="text-3xl font-bold text-accent-error mt-1">{formatCurrency(monthlyExpenses, primaryCurrency)}</p>
-        </Card>
+            </Card>
+         )}
+         {dashboardCards?.MONTHLY_SUMMARY && (
+            <>
+                <Card className="lg:col-span-2">
+                  <h4 className="font-semibold text-content-200 text-sm">Income this month</h4>
+                  <p className="text-3xl font-bold text-accent-success mt-1">{formatCurrency(monthlyIncome, primaryCurrency)}</p>
+                </Card>
+                <Card className="lg:col-span-2">
+                  <h4 className="font-semibold text-content-200 text-sm">Expenses this month</h4>
+                  <p className="text-3xl font-bold text-accent-error mt-1">{formatCurrency(monthlyExpenses, primaryCurrency)}</p>
+                </Card>
+            </>
+         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-1">
-          <h4 className="text-lg font-bold text-white mb-4">Spending by Category</h4>
-          {spendingData.length > 0 ? (
-            <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2">
-              {spendingData.slice(0, 5).map((category, index) => (
-                  <div key={category.id} className="animate-list-item-in" style={{ animationDelay: `${index * 30}ms` }}>
-                      <div className="flex justify-between text-sm mb-1">
-                          <span className="font-medium text-content-100 truncate pr-2">{category.name}</span>
-                          <span className="font-semibold text-white flex-shrink-0">{formatCurrency(category.value, primaryCurrency)}</span>
-                      </div>
-                      <div className="w-full bg-base-300 rounded-full h-1.5">
-                          <div
-                              className="h-1.5 rounded-full"
-                              style={{ 
-                                  width: `${(category.value / spendingData[0].value) * 100}%`,
-                                  backgroundColor: PIE_COLORS[index % PIE_COLORS.length]
-                              }}
-                          ></div>
-                      </div>
-                  </div>
-              ))}
-            </div>
-          ) : <p className="text-content-200 text-center py-10">No expense data available.</p>}
-        </Card>
-        <Card className="lg:col-span-2">
-            <h4 className="text-lg font-bold text-white mb-4">Recent Transactions</h4>
-            <div className="space-y-3">
-              {recentTransactions.length > 0 ? recentTransactions.map((t, index) => {
-                  const category = getCategoryById(t.categoryId);
-                  const isIncome = t.type === TransactionType.INCOME;
-                  const isTransfer = t.type === TransactionType.TRANSFER;
-                  const account = getAccountById(t.accountId);
-                  const toAccount = isTransfer && t.toAccountId ? getAccountById(t.toAccountId) : undefined;
-                  return (
-                      <div key={t.id} className="flex justify-between items-center p-3 rounded-xl hover:bg-base-300/30 animate-list-item-in" style={{ animationDelay: `${index * 50}ms` }}>
-                          <div className="flex items-center gap-4">
-                              <span className="p-2 bg-base-100 rounded-full text-content-200">{ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}</span>
-                              <div>
-                                  <p className="font-semibold text-white">{t.description}</p>
-                                  <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {isTransfer ? `${account?.name || 'N/A'} → ${toAccount?.name || 'N/A'}` : category?.name}</p>
+      {(dashboardCards?.SPENDING_CATEGORY || dashboardCards?.RECENT_TRANSACTIONS) && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {dashboardCards?.SPENDING_CATEGORY && (
+                <Card className="lg:col-span-1">
+                  <h4 className="text-lg font-bold text-white mb-4">Spending by Category</h4>
+                  {spendingData.length > 0 ? (
+                    <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2">
+                      {spendingData.slice(0, 5).map((category, index) => (
+                          <div key={category.id} className="animate-list-item-in" style={{ animationDelay: `${index * 30}ms` }}>
+                              <div className="flex justify-between text-sm mb-1">
+                                  <span className="font-medium text-content-100 truncate pr-2">{category.name}</span>
+                                  <span className="font-semibold text-white flex-shrink-0">{formatCurrency(category.value, primaryCurrency)}</span>
+                              </div>
+                              <div className="w-full bg-base-300 rounded-full h-1.5">
+                                  <div
+                                      className="h-1.5 rounded-full"
+                                      style={{ 
+                                          width: `${(category.value / spendingData[0].value) * 100}%`,
+                                          backgroundColor: PIE_COLORS[index % PIE_COLORS.length]
+                                      }}
+                                  ></div>
                               </div>
                           </div>
-                          <p className={classNames("font-bold text-base", 
-                              isIncome ? 'text-accent-success' : 
-                              isTransfer ? 'text-content-100' : 'text-accent-error'
-                          )}>
-                              {isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}
-                          </p>
-                      </div>
-                  )
-              }) : <p className="text-content-200 text-center py-10">No transactions yet.</p>}
-            </div>
-        </Card>
-      </div>
-
-       <Card>
-          <h4 className="text-lg font-bold text-white mb-4">Budget Status</h4>
-          <div className="space-y-4">
-            {budgetStatus.length > 0 ? (
-              budgetStatus.map(b => (
-                  <div key={b.id}>
-                      <div className="flex justify-between mb-1 text-sm">
-                          <span className="font-semibold text-white">{b.categoryName}</span>
-                          <span className="text-content-200">{formatCurrency(b.spent, primaryCurrency)} / {formatCurrency(b.amount, primaryCurrency)}</span>
-                      </div>
-                      <div className="w-full bg-base-300 rounded-full h-2.5">
-                          <div
-                            className={classNames("h-2.5 rounded-full transition-all duration-500", b.progress > 85 ? 'bg-accent-error' : b.progress > 60 ? 'bg-accent-warning' : 'bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to')}
-                            style={{ width: `${b.progress}%` }}
-                          ></div>
-                      </div>
-                  </div>
-              ))
-            ) : (
-              <p className="text-content-200 text-center py-10">No budgets set. Go to the Budgets page to create one.</p>
+                      ))}
+                    </div>
+                  ) : <p className="text-content-200 text-center py-10">No expense data available.</p>}
+                </Card>
             )}
-          </div>
-       </Card>
+            {dashboardCards?.RECENT_TRANSACTIONS && (
+                <Card className={classNames(
+                    "lg:col-span-2",
+                    !dashboardCards?.SPENDING_CATEGORY && 'lg:col-span-3'
+                )}>
+                    <h4 className="text-lg font-bold text-white mb-4">Recent Transactions</h4>
+                    <div className="space-y-3">
+                      {recentTransactions.length > 0 ? recentTransactions.map((t, index) => {
+                          const category = getCategoryById(t.categoryId);
+                          const isIncome = t.type === TransactionType.INCOME;
+                          const isTransfer = t.type === TransactionType.TRANSFER;
+                          const account = getAccountById(t.accountId);
+                          const toAccount = isTransfer && t.toAccountId ? getAccountById(t.toAccountId) : undefined;
+                          return (
+                              <div key={t.id} className="flex justify-between items-center p-3 rounded-xl hover:bg-base-300/30 animate-list-item-in" style={{ animationDelay: `${index * 50}ms` }}>
+                                  <div className="flex items-center gap-4">
+                                      <span className="p-2 bg-base-100 rounded-full text-content-200">{ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}</span>
+                                      <div>
+                                          <p className="font-semibold text-white">{t.description}</p>
+                                          <p className="text-xs text-content-200">{formatDate(t.date)} &bull; {isTransfer ? `${account?.name || 'N/A'} → ${toAccount?.name || 'N/A'}` : category?.name}</p>
+                                      </div>
+                                  </div>
+                                  <p className={classNames("font-bold text-base", 
+                                      isIncome ? 'text-accent-success' : 
+                                      isTransfer ? 'text-content-100' : 'text-accent-error'
+                                  )}>
+                                      {isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}
+                                  </p>
+                              </div>
+                          )
+                      }) : <p className="text-content-200 text-center py-10">No transactions yet.</p>}
+                    </div>
+                </Card>
+            )}
+        </div>
+      )}
+
+       {dashboardCards?.BUDGET_STATUS && (
+          <Card>
+              <h4 className="text-lg font-bold text-white mb-4">Budget Status</h4>
+              <div className="space-y-4">
+                {budgetStatus.length > 0 ? (
+                  budgetStatus.map(b => (
+                      <div key={b.id}>
+                          <div className="flex justify-between mb-1 text-sm">
+                              <span className="font-semibold text-white">{b.categoryName}</span>
+                              <span className="text-content-200">{formatCurrency(b.spent, primaryCurrency)} / {formatCurrency(b.amount, primaryCurrency)}</span>
+                          </div>
+                          <div className="w-full bg-base-300 rounded-full h-2.5">
+                              <div
+                                className={classNames("h-2.5 rounded-full transition-all duration-500", b.progress > 85 ? 'bg-accent-error' : b.progress > 60 ? 'bg-accent-warning' : 'bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to')}
+                                style={{ width: `${b.progress}%` }}
+                              ></div>
+                          </div>
+                      </div>
+                  ))
+                ) : (
+                  <p className="text-content-200 text-center py-10">No budgets set. Go to the Budgets page to create one.</p>
+                )}
+              </div>
+          </Card>
+       )}
     </div>
   );
 };
@@ -2290,6 +2327,66 @@ const CategoryManager: React.FC = () => {
     )
 }
 
+const ToggleSwitch: React.FC<{
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+}> = ({ enabled, onChange }) => {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!enabled)}
+      className={classNames(
+        'relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-primary focus:ring-offset-base-200',
+        enabled ? 'bg-brand-gradient-to' : 'bg-base-300'
+      )}
+      aria-pressed={enabled}
+    >
+      <span
+        aria-hidden="true"
+        className={classNames(
+          'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200',
+          enabled ? 'translate-x-5' : 'translate-x-0'
+        )}
+      />
+    </button>
+  );
+};
+
+const DashboardCustomizer: React.FC = () => {
+    const { dashboardCards, setDashboardCards } = useFinance();
+
+    const handleToggle = (key: DashboardCard) => {
+        setDashboardCards(prev => ({
+            ...prev,
+            [key]: !prev?.[key],
+        }));
+    };
+
+    return (
+        <Card>
+            <h3 className="text-lg font-bold text-white mb-2">Customize Dashboard</h3>
+            <p className="text-sm text-content-200 mb-4">Select which cards to display on your dashboard.</p>
+            <div className="space-y-3">
+                {dashboardCardDefs.map(item => (
+                    <div 
+                        key={item.key} 
+                        className="flex items-center justify-between p-3 bg-base-100 rounded-lg"
+                    >
+                        <div className="flex-1 pr-4">
+                            <p className="font-semibold text-white">{item.label}</p>
+                            <p className="text-xs text-content-200">{item.description}</p>
+                        </div>
+                        <ToggleSwitch
+                            enabled={dashboardCards?.[item.key] ?? true}
+                            onChange={() => handleToggle(item.key)}
+                        />
+                    </div>
+                ))}
+            </div>
+        </Card>
+    )
+}
+
 const BottomNavCustomizer: React.FC = () => {
     const { bottomNavViews, setBottomNavViews } = useFinance();
 
@@ -2354,6 +2451,7 @@ const SettingsView: React.FC = () => {
                 </div>
             </div>
         </Card>
+        <DashboardCustomizer />
         <BottomNavCustomizer />
         <CategoryManager />
     </div>
