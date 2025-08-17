@@ -1,9 +1,7 @@
 
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line
-} from 'recharts';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry } from './types';
 import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES } from './constants';
 import { getFinancialInsights, suggestCategory, fetchProductDetailsFromUrl, processReceiptImage, findSubscriptions } from './services/geminiService';
@@ -615,7 +613,6 @@ const FloatingActionButton: React.FC<{
 
 const DashboardView: React.FC = () => {
   const { transactions, accounts, budgets, primaryCurrency, getCategoryById, getAccountById, netWorthHistory } = useFinance();
-  const [showAccountBreakdown, setShowAccountBreakdown] = useState(false);
   const [isNetWorthVisible, setIsNetWorthVisible] = useState(true);
   
   const netWorth = useMemo(() => netWorthHistory.length > 0 ? netWorthHistory[netWorthHistory.length - 1].value : 0, [netWorthHistory]);
@@ -687,56 +684,25 @@ const DashboardView: React.FC = () => {
                         {isNetWorthVisible ? formatCurrency(netWorth, primaryCurrency) : '••••••••'}
                     </p>
                 </div>
-                <button
-                    onClick={() => setShowAccountBreakdown(p => !p)}
-                    className="p-1.5 rounded-full text-content-200 hover:bg-base-300 hover:text-white transition-colors"
-                    aria-label={showAccountBreakdown ? "Show net worth chart" : "Show account breakdown"}
-                    title={showAccountBreakdown ? "Show chart" : "Show breakdown"}
-                >
-                    {showAccountBreakdown ? ICONS['chart-bar'] : ICONS['list-details']}
-                </button>
             </div>
           
-          <div className="mt-4 h-32">
-            {showAccountBreakdown ? (
-                 <div className="h-full overflow-y-auto space-y-1 animate-fade-in pr-2">
-                    {accounts.length > 0 ? accounts
-                        .sort((a, b) => b.balance - a.balance)
-                        .map(acc => (
-                        <div key={acc.id} className="flex justify-between items-center text-sm p-2 rounded-lg hover:bg-base-300/50 transition-colors">
-                            <div>
-                                <p className="font-semibold text-white">{acc.name}</p>
-                                <p className="text-xs text-content-200">{acc.type}</p>
-                            </div>
-                            <p className={classNames("font-medium", acc.balance >= 0 ? 'text-white' : 'text-accent-error')}>
-                                {isNetWorthVisible ? formatCurrency(acc.balance, acc.currency) : '••••'}
-                            </p>
+          <div className="mt-4 max-h-48 overflow-y-auto pr-2">
+            <div className="space-y-1 animate-fade-in">
+                {accounts.length > 0 ? accounts
+                    .sort((a, b) => b.balance - a.balance)
+                    .map(acc => (
+                    <div key={acc.id} className="flex justify-between items-center text-sm p-2 rounded-lg hover:bg-base-300/50 transition-colors">
+                        <div>
+                            <p className="font-semibold text-white">{acc.name}</p>
+                            <p className="text-xs text-content-200">{acc.type}</p>
                         </div>
-                    )) : <p className="text-content-200 text-center py-10">No accounts to display.</p>}
-                </div>
-            ) : (
-                netWorthHistory.length > 1 ? (
-                    <div className="h-full -ml-5 -mr-2 animate-fade-in">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={netWorthHistory} margin={{ top: 5, right: 10, left: -30, bottom: 0 }}>
-                                <defs>
-                                    <linearGradient id="netWorthGradient" x1="0" y1="0" x2="1" y2="0">
-                                        <stop offset="0%" stopColor="#818CF8" />
-                                        <stop offset="100%" stopColor="#C084FC" />
-                                    </linearGradient>
-                                </defs>
-                                <Tooltip 
-                                    contentStyle={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', border: '1px solid #2A2A2A', borderRadius: '0.75rem', fontSize: '12px', backdropFilter: 'blur(4px)' }}
-                                    labelFormatter={(label) => formatDate(new Date(label).toISOString())}
-                                    formatter={(value:number) => isNetWorthVisible ? [formatCurrency(value, primaryCurrency), 'Net Worth'] : ['••••••', 'Net Worth']}
-                                />
-                                <Line type="monotone" dataKey="value" stroke="url(#netWorthGradient)" strokeWidth={3} dot={false} />
-                            </LineChart>
-                        </ResponsiveContainer>
+                        <p className={classNames("font-medium", acc.balance >= 0 ? 'text-white' : 'text-accent-error')}>
+                            {isNetWorthVisible ? formatCurrency(acc.balance, acc.currency) : '••••'}
+                        </p>
                     </div>
-                ) : <div className="h-full flex items-center justify-center text-sm text-content-200 animate-fade-in">Not enough data for chart.</div>
-            )}
-          </div>
+                )) : <p className="text-content-200 text-center py-10">No accounts to display.</p>}
+            </div>
+        </div>
         </Card>
         <Card className="lg:col-span-2">
           <h4 className="font-semibold text-content-200 text-sm">Income this month</h4>
@@ -752,15 +718,25 @@ const DashboardView: React.FC = () => {
         <Card className="lg:col-span-1">
           <h4 className="text-lg font-bold text-white mb-4">Spending by Category</h4>
           {spendingData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie data={spendingData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={80} fill="#8884d8" paddingAngle={5} labelLine={false}>
-                  {spendingData.map((entry, index) => <Cell key={`cell-${entry.id}`} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke={PIE_COLORS[index % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', border: '1px solid #2A2A2A', borderRadius: '0.75rem', backdropFilter: 'blur(4px)' }} formatter={(value: number) => formatCurrency(value, primaryCurrency)} />
-                <Legend iconSize={10} wrapperStyle={{fontSize: '12px'}} />
-              </PieChart>
-            </ResponsiveContainer>
+            <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2">
+              {spendingData.slice(0, 5).map((category, index) => (
+                  <div key={category.id} className="animate-list-item-in" style={{ animationDelay: `${index * 30}ms` }}>
+                      <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium text-content-100 truncate pr-2">{category.name}</span>
+                          <span className="font-semibold text-white flex-shrink-0">{formatCurrency(category.value, primaryCurrency)}</span>
+                      </div>
+                      <div className="w-full bg-base-300 rounded-full h-1.5">
+                          <div
+                              className="h-1.5 rounded-full"
+                              style={{ 
+                                  width: `${(category.value / spendingData[0].value) * 100}%`,
+                                  backgroundColor: PIE_COLORS[index % PIE_COLORS.length]
+                              }}
+                          ></div>
+                      </div>
+                  </div>
+              ))}
+            </div>
           ) : <p className="text-content-200 text-center py-10">No expense data available.</p>}
         </Card>
         <Card className="lg:col-span-2">
