@@ -1493,11 +1493,10 @@ const InvestmentsView: React.FC = () => {
     const { investments, deleteInvestment, primaryCurrency } = useFinance();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingInvestment, setEditingInvestment] = useState<Investment | undefined>(undefined);
-    
-    // New state for AI analysis
     const [isAnalysisModalOpen, setAnalysisModalOpen] = useState(false);
     const [analysisResult, setAnalysisResult] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
     const openModal = (investment?: Investment) => {
         setEditingInvestment(investment);
@@ -1517,6 +1516,50 @@ const InvestmentsView: React.FC = () => {
         setAnalysisResult(result);
         setIsAnalyzing(false);
     };
+
+    const toggleGroup = (name: string) => {
+        setExpandedGroups(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(name)) {
+                newSet.delete(name);
+            } else {
+                newSet.add(name);
+            }
+            return newSet;
+        });
+    };
+
+    const groupedInvestments = useMemo(() => {
+        const groups: Record<string, Investment[]> = investments.reduce((acc, inv) => {
+            (acc[inv.name] = acc[inv.name] || []).push(inv);
+            return acc;
+        }, {} as Record<string, Investment[]>);
+
+        return Object.values(groups).map(group => {
+            const totalUnits = group.reduce((sum, i) => sum + i.units, 0);
+            if (totalUnits === 0) return null;
+
+            const totalInvested = group.reduce((sum, i) => sum + (i.units * i.purchasePrice), 0);
+            const currentPrice = group[0]?.currentPrice || 0;
+            const totalCurrentValue = totalUnits * currentPrice;
+            const avgBuyPrice = totalInvested / totalUnits;
+            const gainLoss = totalCurrentValue - totalInvested;
+            const gainLossPercent = totalInvested > 0 ? (gainLoss / totalInvested) * 100 : 0;
+            
+            return {
+                name: group[0].name,
+                type: group[0].type,
+                totalUnits,
+                avgBuyPrice,
+                currentPrice,
+                totalCurrentValue,
+                gainLoss,
+                gainLossPercent,
+                purchases: group.sort((a,b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime()),
+            };
+        }).filter((g): g is NonNullable<typeof g> => g !== null)
+          .sort((a, b) => b.totalCurrentValue - a.totalCurrentValue);
+    }, [investments]);
 
     const totalValue = useMemo(() => investments.reduce((sum, i) => sum + (i.units * i.currentPrice), 0), [investments]);
     const totalInvested = useMemo(() => investments.reduce((sum, i) => sum + (i.units * i.purchasePrice), 0), [investments]);
@@ -1598,50 +1641,59 @@ const InvestmentsView: React.FC = () => {
                 </div>
             </div>
 
-            {investments.length > 0 ? (
-                <div className="space-y-4">
-                    {investments.map((inv, index) => {
-                        const invested = inv.units * inv.purchasePrice;
-                        const current = inv.units * inv.currentPrice;
-                        const gainLoss = current - invested;
-                        const gainLossPercent = invested > 0 ? (gainLoss / invested) * 100 : 0;
+            <div className="space-y-4">
+                {groupedInvestments.length > 0 ? (
+                    groupedInvestments.map((group, index) => {
+                        const isExpanded = expandedGroups.has(group.name);
                         return (
-                             <Card key={inv.id} className="p-0" animate style={{ animationDelay: `${index * 50}ms`}}>
-                                <div className="p-4">
+                             <Card key={group.name} className="p-0" animate style={{ animationDelay: `${index * 50}ms`}}>
+                                <div className="p-4 cursor-pointer" onClick={() => toggleGroup(group.name)}>
                                     <div className="flex justify-between items-start">
                                         <div>
-                                            <h3 className="font-bold text-lg text-white">{inv.name}</h3>
-                                            <p className="text-sm text-content-200">{inv.type}</p>
+                                            <h3 className="font-bold text-lg text-white">{group.name}</h3>
+                                            <p className="text-sm text-content-200">{group.type}</p>
                                         </div>
-                                        <div className="flex gap-2">
-                                            <Button variant="secondary" className="p-2 h-8 w-8" onClick={() => openModal(inv)}>{ICONS.edit}</Button>
-                                            <Button variant="danger" className="p-2 h-8 w-8" onClick={() => window.confirm(`Delete ${inv.name}?`) && deleteInvestment(inv.id)}>{ICONS.trash}</Button>
+                                        <div className="flex items-center gap-2">
+                                            <p className="font-bold text-lg text-white">{formatCurrency(group.totalCurrentValue, primaryCurrency)}</p>
+                                            <span className={classNames("transition-transform duration-300", isExpanded ? "rotate-180" : "rotate-0")}>{ICONS['chevron-down']}</span>
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
-                                        <div><p className="text-content-200 text-xs">Units</p><p className="font-semibold text-white">{inv.units}</p></div>
-                                        <div><p className="text-content-200 text-xs">Avg. Buy Price</p><p className="font-semibold text-white">{formatCurrency(inv.purchasePrice, primaryCurrency)}</p></div>
-                                        <div><p className="text-content-200 text-xs">Current Price</p><p className="font-semibold text-white">{formatCurrency(inv.currentPrice, primaryCurrency)}</p></div>
-                                        <div><p className="text-content-200 text-xs">Purchase Date</p><p className="font-semibold text-white">{formatDate(inv.purchaseDate)}</p></div>
+                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
+                                        <div><p className="text-content-200 text-xs">Total Units</p><p className="font-semibold text-white">{group.totalUnits.toFixed(2)}</p></div>
+                                        <div><p className="text-content-200 text-xs">Avg. Buy Price</p><p className="font-semibold text-white">{formatCurrency(group.avgBuyPrice, primaryCurrency)}</p></div>
+                                        <div><p className="text-content-200 text-xs">Current Price</p><p className="font-semibold text-white">{formatCurrency(group.currentPrice, primaryCurrency)}</p></div>
+                                        <div className={classNames(group.gainLoss >= 0 ? 'text-accent-success' : 'text-accent-error')}>
+                                            <p className="text-content-200 text-xs">P&L</p>
+                                            <p className="font-bold">{formatCurrency(group.gainLoss, primaryCurrency)} ({group.gainLossPercent.toFixed(2)}%)</p>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="bg-base-300/30 rounded-b-2xl p-3 grid grid-cols-3 text-center text-sm">
-                                    <div><p className="text-content-200 text-xs">Invested</p><p className="font-bold text-white">{formatCurrency(invested, primaryCurrency)}</p></div>
-                                    <div><p className="text-content-200 text-xs">Current</p><p className="font-bold text-white">{formatCurrency(current, primaryCurrency)}</p></div>
-                                    <div>
-                                        <p className="text-content-200 text-xs">P&L</p>
-                                        <p className={classNames("font-bold", gainLoss >= 0 ? 'text-accent-success' : 'text-accent-error')}>
-                                            {formatCurrency(gainLoss, primaryCurrency)} ({gainLossPercent.toFixed(2)}%)
-                                        </p>
+
+                                {isExpanded && (
+                                    <div className="bg-base-300/20 rounded-b-2xl p-3 space-y-2 animate-fade-in">
+                                        <h4 className="text-sm font-semibold text-white px-2">Purchase History</h4>
+                                        {group.purchases.map(purchase => (
+                                            <div key={purchase.id} className="flex justify-between items-center p-2 rounded-lg hover:bg-base-300/50">
+                                                <div>
+                                                    <p className="text-sm text-white">{formatDate(purchase.purchaseDate)}</p>
+                                                    <p className="text-xs text-content-200">{purchase.units} units @ {formatCurrency(purchase.purchasePrice, primaryCurrency)}</p>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <Button variant="secondary" className="p-1.5 h-7 w-7" onClick={(e) => { e.stopPropagation(); openModal(purchase); }}>{ICONS.edit}</Button>
+                                                    <Button variant="danger" className="p-1.5 h-7 w-7" onClick={(e) => { e.stopPropagation(); window.confirm(`Delete this purchase of ${purchase.name}?`) && deleteInvestment(purchase.id); }}>{ICONS.trash}</Button>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                </div>
+                                )}
                              </Card>
                         )
-                    })}
-                </div>
-            ) : (
-                <div className="text-center py-20"><p className="text-content-200">No investments added yet.</p></div>
-            )}
+                    })
+                ) : (
+                    <div className="text-center py-20"><p className="text-content-200">No investments added yet.</p></div>
+                )}
+            </div>
+
             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingInvestment ? 'Edit Investment' : 'Add Investment'}>
                 <InvestmentForm onClose={closeModal} existingInvestment={editingInvestment}/>
             </Modal>
