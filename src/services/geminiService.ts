@@ -1,7 +1,7 @@
 
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Transaction, Category, TransactionType, Account, Asset, Subscription } from '../types';
+import { Transaction, Category, TransactionType, Account, Asset, Subscription, Investment, InvestmentType } from '../types';
 
 const API_KEY = import.meta.env.VITE_API_KEY;
 
@@ -336,5 +336,64 @@ export const generateFinancialReport = async (
   } catch (error) {
     console.error("Error generating financial report:", error);
     return "An error occurred while generating the AI analysis. Please check your API key and network connection.";
+  }
+};
+
+export const analyzePortfolio = async (investments: Investment[]): Promise<string> => {
+  if (!API_KEY) return "API Key not configured. Portfolio analysis is disabled.";
+  if (investments.length === 0) return "You don't have any investments to analyze.";
+
+  const portfolioSummary = {
+    totalValue: investments.reduce((sum, i) => sum + i.units * i.currentPrice, 0),
+    totalInvested: investments.reduce((sum, i) => sum + i.units * i.purchasePrice, 0),
+    investmentCount: investments.length,
+    types: {
+      [InvestmentType.STOCK]: investments.filter(i => i.type === InvestmentType.STOCK).length,
+      [InvestmentType.MUTUAL_FUND]: investments.filter(i => i.type === InvestmentType.MUTUAL_FUND).length,
+    },
+    simplifiedInvestments: investments.map(i => ({
+      name: i.name,
+      type: i.type,
+      investedValue: i.units * i.purchasePrice,
+      currentValue: i.units * i.currentPrice,
+    }))
+  };
+
+  const prompt = `
+    You are an expert financial advisor named FinanSage. Your tone is insightful, encouraging, and educational, not just generic advice. You are analyzing a user's investment portfolio.
+
+    **User's Portfolio Summary:**
+    ${JSON.stringify(portfolioSummary, null, 2)}
+
+    **Your Task:**
+    Provide a concise but insightful analysis of this portfolio. Structure your response in Markdown with the following sections:
+
+    ### Portfolio Overview
+    Start with a brief, positive summary of the portfolio (e.g., total value, overall gain/loss).
+
+    ### Diversification Check
+    Analyze the diversification between Stocks and Mutual Funds. Comment on the balance. Is it aggressive (heavy on stocks), conservative, or balanced? What are the implications?
+
+    ### Concentration
+    Identify if there's a heavy concentration in a single investment (e.g., if one asset makes up more than 30% of the portfolio). Explain the potential risk of this.
+
+    ### Actionable Suggestions
+    Provide 2-3 clear, actionable suggestions based ONLY on the data provided. Do NOT give specific stock recommendations. Suggestions should be general principles, like:
+    - "Consider diversifying further if your risk tolerance allows."
+    - "Review your high-concentration assets to ensure they align with your long-term goals."
+    - "Keep monitoring your investments regularly."
+
+    Keep the entire response under 250 words. Be direct and clear.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text || "Sorry, I couldn't analyze your portfolio at this moment.";
+  } catch (error) {
+    console.error("Error analyzing portfolio:", error);
+    return "An error occurred during portfolio analysis. Please try again later.";
   }
 };

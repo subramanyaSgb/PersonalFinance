@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, SavingsInstrument, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard, InvestmentType, SavingsType } from './types';
 import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, NavItemDef, dashboardCardDefs } from './constants';
-import { suggestCategory, processReceiptImage, getFinancialInsights, generateFinancialReport, findSubscriptions, fetchProductDetailsFromUrl } from './services/geminiService';
+import { suggestCategory, processReceiptImage, getFinancialInsights, generateFinancialReport, findSubscriptions, fetchProductDetailsFromUrl, analyzePortfolio } from './services/geminiService';
 
 // UTILITY FUNCTIONS
 const classNames = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -1492,6 +1493,11 @@ const InvestmentsView: React.FC = () => {
     const { investments, deleteInvestment, primaryCurrency } = useFinance();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingInvestment, setEditingInvestment] = useState<Investment | undefined>(undefined);
+    
+    // New state for AI analysis
+    const [isAnalysisModalOpen, setAnalysisModalOpen] = useState(false);
+    const [analysisResult, setAnalysisResult] = useState('');
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     const openModal = (investment?: Investment) => {
         setEditingInvestment(investment);
@@ -1503,23 +1509,93 @@ const InvestmentsView: React.FC = () => {
         setIsModalOpen(false);
     };
 
-    const totalValue = investments.reduce((sum, i) => sum + (i.units * i.currentPrice), 0);
-    const totalInvested = investments.reduce((sum, i) => sum + (i.units * i.purchasePrice), 0);
+    const handleAnalyzePortfolio = async () => {
+        setIsAnalyzing(true);
+        setAnalysisModalOpen(true);
+        setAnalysisResult('');
+        const result = await analyzePortfolio(investments);
+        setAnalysisResult(result);
+        setIsAnalyzing(false);
+    };
+
+    const totalValue = useMemo(() => investments.reduce((sum, i) => sum + (i.units * i.currentPrice), 0), [investments]);
+    const totalInvested = useMemo(() => investments.reduce((sum, i) => sum + (i.units * i.purchasePrice), 0), [investments]);
     const totalGainLoss = totalValue - totalInvested;
+
+    const portfolioAllocationData = useMemo(() => {
+        if (investments.length === 0) return [];
+        const allocation = investments.reduce((acc, investment) => {
+            const value = investment.units * investment.currentPrice;
+            if (!acc[investment.type]) {
+                acc[investment.type] = { name: investment.type, value: 0 };
+            }
+            acc[investment.type].value += value;
+            return acc;
+        }, {} as { [key: string]: { name: string, value: number } });
+
+        return Object.values(allocation);
+    }, [investments]);
+
+    const PIE_COLORS = ['#818CF8', '#C084FC', '#F59E0B', '#34D399'];
 
     return (
         <div className="animate-fade-in">
             <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                 <h2 className="text-3xl font-bold text-white self-start md:self-center">Investments</h2>
-                <Button onClick={() => openModal()} className="self-end md:self-center">
-                    {ICONS.plus} <span className="hidden sm:inline">Add Investment</span>
-                </Button>
+                <div className="flex gap-2 self-end md:self-center">
+                    <Button onClick={handleAnalyzePortfolio} variant="secondary" disabled={isAnalyzing || investments.length === 0}>
+                        {ICONS.insights} <span className="hidden sm:inline">Analyze Portfolio</span>
+                    </Button>
+                    <Button onClick={() => openModal()}>
+                        {ICONS.plus} <span className="hidden sm:inline">Add Investment</span>
+                    </Button>
+                </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <Card><h4 className="font-semibold text-content-200 text-sm">Total Invested</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalInvested, primaryCurrency)}</p></Card>
-                <Card><h4 className="font-semibold text-content-200 text-sm">Current Value</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalValue, primaryCurrency)}</p></Card>
-                <Card><h4 className="font-semibold text-content-200 text-sm">Total Gain/Loss</h4><p className={classNames("text-2xl font-bold mt-1", totalGainLoss >= 0 ? 'text-accent-success' : 'text-accent-error')}>{formatCurrency(totalGainLoss, primaryCurrency)}</p></Card>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-6 lg:col-span-1">
+                    <Card><h4 className="font-semibold text-content-200 text-sm">Total Invested</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalInvested, primaryCurrency)}</p></Card>
+                    <Card><h4 className="font-semibold text-content-200 text-sm">Current Value</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalValue, primaryCurrency)}</p></Card>
+                    <Card><h4 className="font-semibold text-content-200 text-sm">Total Gain/Loss</h4><p className={classNames("text-2xl font-bold mt-1", totalGainLoss >= 0 ? 'text-accent-success' : 'text-accent-error')}>{formatCurrency(totalGainLoss, primaryCurrency)}</p></Card>
+                </div>
+
+                <div className="lg:col-span-2">
+                    <Card className="h-full min-h-[290px] flex flex-col">
+                        <h3 className="text-lg font-bold text-white mb-4">Portfolio Allocation</h3>
+                         {portfolioAllocationData.length > 0 ? (
+                            <div className="flex-grow">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={portfolioAllocationData}
+                                            cx="50%"
+                                            cy="50%"
+                                            labelLine={false}
+                                            outerRadius={80}
+                                            fill="#8884d8"
+                                            dataKey="value"
+                                            nameKey="name"
+                                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                        >
+                                            {portfolioAllocationData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip
+                                            formatter={(value: number) => [formatCurrency(value, primaryCurrency), "Value"]}
+                                            contentStyle={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', border: '1px solid #2A2A2A', borderRadius: '1rem' }}
+                                        />
+                                        <Legend wrapperStyle={{ bottom: -5 }} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center flex-grow">
+                                <p className="text-content-200">No data for allocation chart.</p>
+                            </div>
+                        )}
+                    </Card>
+                </div>
             </div>
 
             {investments.length > 0 ? (
@@ -1568,6 +1644,21 @@ const InvestmentsView: React.FC = () => {
             )}
             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingInvestment ? 'Edit Investment' : 'Add Investment'}>
                 <InvestmentForm onClose={closeModal} existingInvestment={editingInvestment}/>
+            </Modal>
+            <Modal isOpen={isAnalysisModalOpen} onClose={() => setAnalysisModalOpen(false)} title="AI Portfolio Analysis">
+                 <div className="space-y-4">
+                    {isAnalyzing ? (
+                        <div className="space-y-4 p-4">
+                            <SkeletonLoader className="h-6 w-1/2" />
+                            <SkeletonLoader className="h-4 w-full" />
+                            <SkeletonLoader className="h-4 w-4/5" />
+                            <SkeletonLoader className="h-6 w-1/3 mt-4" />
+                            <SkeletonLoader className="h-4 w-full" />
+                        </div>
+                    ) : (
+                        <MarkdownRenderer content={analysisResult} />
+                    )}
+                 </div>
             </Modal>
         </div>
     );
