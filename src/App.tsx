@@ -1332,7 +1332,7 @@ const TransactionCard: React.FC<{
             </div>
             {transaction.notes && (
                 <div className="px-4 pb-3 border-b border-base-300">
-                    <p className="text-sm text-content-200 italic">"{transaction.notes}"</p>
+                    <p className="text-sm text-content-200 italic break-words">"{transaction.notes}"</p>
                 </div>
             )}
             <div className="flex justify-end gap-2 p-2 bg-base-300/20 rounded-b-2xl">
@@ -1679,8 +1679,8 @@ const InvestmentsView: React.FC = () => {
                                                     <p className="text-xs text-content-200">{purchase.units} units @ {formatCurrency(purchase.purchasePrice, primaryCurrency)}</p>
                                                 </div>
                                                 <div className="flex gap-2">
-                                                    <Button variant="secondary" className="p-1.5 h-7 w-7" onClick={(e) => { e.stopPropagation(); openModal(purchase); }}>{ICONS.edit}</Button>
-                                                    <Button variant="danger" className="p-1.5 h-7 w-7" onClick={(e) => { e.stopPropagation(); window.confirm(`Delete this purchase of ${purchase.name}?`) && deleteInvestment(purchase.id); }}>{ICONS.trash}</Button>
+                                                    <Button variant="secondary" className="h-7 w-7 px-1 py-1" onClick={(e) => { e.stopPropagation(); openModal(purchase); }}>{ICONS.edit}</Button>
+                                                    <Button variant="danger" className="h-7 w-7 px-1 py-1" onClick={(e) => { e.stopPropagation(); window.confirm(`Delete this purchase of ${purchase.name}?`) && deleteInvestment(purchase.id); }}>{ICONS.trash}</Button>
                                                 </div>
                                             </div>
                                         ))}
