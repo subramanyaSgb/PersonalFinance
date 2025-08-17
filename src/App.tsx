@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry } from './types';
 import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES } from './constants';
@@ -21,7 +22,7 @@ const formatInputDate = (date?: string | Date) => {
 };
 const formatCurrency = (amount: number, currencyCode: string) => {
   const currency = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[7]; // Default to INR
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.code, maximumFractionDigits: 0 }).format(amount);
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.code }).format(amount);
 };
 const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
