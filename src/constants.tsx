@@ -129,6 +129,7 @@ export const mainNavItems: NavItemDef[] = [
 export const moreNavItems: NavItemDef[] = [
     { view: 'BUDGETS', label: 'Budgets', icon: ICONS.budgets },
     { view: 'GOALS', label: 'Goals', icon: ICONS.goals },
+    { view: 'REPORTS', label: 'Reports', icon: ICONS['chart-bar'] },
     { view: 'INSIGHTS', label: 'AI Insights', icon: ICONS.insights },
 ];
 

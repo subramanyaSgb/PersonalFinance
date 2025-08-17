@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard } from './types';
-import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, NavItemDef, dashboardCardDefs } from './constants';
-import { getFinancialInsights, suggestCategory, fetchProductDetailsFromUrl, processReceiptImage, findSubscriptions } from './services/geminiService';
+import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, NavItemDef, dashboardCardDefs } from './constants';
+import { getFinancialInsights, suggestCategory, fetchProductDetailsFromUrl, processReceiptImage, findSubscriptions, generateFinancialReport } from './services/geminiService';
 
 // UTILITY FUNCTIONS
 const classNames = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -627,7 +628,8 @@ const CustomDatePicker: React.FC<{
 const FloatingActionButton: React.FC<{
   onAddManually: () => void;
   onScanReceipt: () => void;
-}> = ({ onAddManually, onScanReceipt }) => {
+  className?: string;
+}> = ({ onAddManually, onScanReceipt, className }) => {
   const [isOpen, setIsOpen] = useState(false);
   const fabRef = useRef<HTMLDivElement>(null);
 
@@ -644,7 +646,7 @@ const FloatingActionButton: React.FC<{
   }, []);
 
   return (
-    <div ref={fabRef} className="fixed bottom-24 right-6 md:bottom-8 z-40">
+    <div ref={fabRef} className={classNames("fixed bottom-24 right-6 md:bottom-8 z-40", className)}>
       {isOpen && (
         <div className="flex flex-col items-center mb-4 space-y-3">
           <button
@@ -2458,16 +2460,161 @@ const SettingsView: React.FC = () => {
   );
 };
 
+const ReportsView: React.FC = () => {
+    const { transactions, categories, primaryCurrency, getCategoryById } = useFinance();
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    const [startDate, setStartDate] = useState(formatInputDate(firstDayOfMonth));
+    const [endDate, setEndDate] = useState(formatInputDate(today));
+    const [reportData, setReportData] = useState<{
+        totalIncome: number;
+        totalExpenses: number;
+        netSavings: number;
+        spendingByCategory: { name: string, value: number }[];
+        incomeByCategory: { name: string, value: number }[];
+    } | null>(null);
+    const [aiAnalysis, setAiAnalysis] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+
+    const handleGenerateReport = useCallback(async () => {
+        setIsLoading(true);
+        setReportData(null);
+        setAiAnalysis('');
+        
+        const start = new Date(startDate);
+        const end = new Date(endDate + 'T23:59:59');
+
+        const relevantTransactions = transactions.filter(t => {
+            const tDate = new Date(t.date);
+            return tDate >= start && tDate <= end;
+        });
+
+        if (relevantTransactions.length === 0) {
+            setReportData({ totalIncome: 0, totalExpenses: 0, netSavings: 0, spendingByCategory: [], incomeByCategory: []});
+            setIsLoading(false);
+            return;
+        }
+
+        const totalIncome = relevantTransactions.filter(t => t.type === TransactionType.INCOME).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = relevantTransactions.filter(t => t.type === TransactionType.EXPENSE).reduce((sum, t) => sum + t.amount, 0);
+        const netSavings = totalIncome - totalExpenses;
+
+        const processCategories = (type: TransactionType) => {
+            const data: { [key: string]: { name: string; value: number } } = {};
+            relevantTransactions
+                .filter(t => t.type === type && t.categoryId)
+                .forEach(t => {
+                    const category = getCategoryById(t.categoryId);
+                    if (category) {
+                        if (!data[category.id]) {
+                            data[category.id] = { name: category.name, value: 0 };
+                        }
+                        data[category.id].value += t.amount;
+                    }
+                });
+            return Object.values(data).sort((a, b) => b.value - a.value);
+        }
+
+        const spendingByCategory = processCategories(TransactionType.EXPENSE);
+        const incomeByCategory = processCategories(TransactionType.INCOME);
+        
+        setReportData({ totalIncome, totalExpenses, netSavings, spendingByCategory, incomeByCategory });
+
+        const analysis = await generateFinancialReport(relevantTransactions, categories, startDate, endDate);
+        setAiAnalysis(analysis);
+
+        setIsLoading(false);
+    }, [startDate, endDate, transactions, categories, getCategoryById]);
+
+    const PIE_COLORS = ['#C084FC', '#818CF8', '#F59E0B', '#F87171', '#6366F1', '#34D399'];
+
+    const renderPrintableReport = () => (
+        <div className="printable-area space-y-6">
+             <div className="text-center mb-8">
+                <h1 className="text-4xl font-bold text-white print:text-black">Financial Report</h1>
+                <p className="text-lg text-content-200 print:text-gray-600">{formatDate(startDate)} &mdash; {formatDate(endDate)}</p>
+             </div>
+
+            {reportData && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <Card className="print:border print:shadow-none"><h4 className="font-semibold text-content-200 text-sm print:text-gray-500">Total Income</h4><p className="text-3xl font-bold text-accent-success mt-1">{formatCurrency(reportData.totalIncome, primaryCurrency)}</p></Card>
+                    <Card className="print:border print:shadow-none"><h4 className="font-semibold text-content-200 text-sm print:text-gray-500">Total Expenses</h4><p className="text-3xl font-bold text-accent-error mt-1">{formatCurrency(reportData.totalExpenses, primaryCurrency)}</p></Card>
+                    <Card className="print:border print:shadow-none"><h4 className="font-semibold text-content-200 text-sm print:text-gray-500">Net Savings</h4><p className={classNames("text-3xl font-bold mt-1", reportData.netSavings >= 0 ? 'text-accent-success' : 'text-accent-error')}>{formatCurrency(reportData.netSavings, primaryCurrency)}</p></Card>
+                </div>
+            )}
+            
+            {aiAnalysis && (
+                <Card className="print:border print:shadow-none"><h2 className="text-2xl font-bold text-white mb-4 print:text-black">AI-Powered Analysis</h2><div className="prose prose-invert max-w-none text-content-100 leading-relaxed print:prose-stone print:text-gray-800" dangerouslySetInnerHTML={{ __html: aiAnalysis.replace(/\n/g, '<br />') }}></div></Card>
+            )}
+
+             {reportData && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                     <Card className="print:border print:shadow-none">
+                        <h3 className="text-xl font-bold text-white mb-4 print:text-black">Expense Breakdown</h3>
+                        {reportData.spendingByCategory.length > 0 ? (
+                            <div className="space-y-3">
+                                {reportData.spendingByCategory.map((cat, i) => (
+                                    <div key={cat.name}><div className="flex justify-between text-sm mb-1"><span className="font-medium text-content-100 print:text-gray-700">{cat.name}</span><span className="font-semibold text-white print:text-black">{formatCurrency(cat.value, primaryCurrency)}</span></div><div className="w-full bg-base-300 rounded-full h-1.5"><div className="h-1.5 rounded-full" style={{ width: `${(cat.value / (reportData.totalExpenses || 1)) * 100}%`, backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}></div></div></div>
+                                ))}
+                            </div>
+                        ) : <p className="text-content-200 print:text-gray-600">No expenses recorded in this period.</p>}
+                    </Card>
+                    <Card className="print:border print:shadow-none">
+                        <h3 className="text-xl font-bold text-white mb-4 print:text-black">Income Sources</h3>
+                        {reportData.incomeByCategory.length > 0 ? (
+                             <div className="space-y-3">
+                                {reportData.incomeByCategory.map((cat, i) => (
+                                    <div key={cat.name}><div className="flex justify-between text-sm mb-1"><span className="font-medium text-content-100 print:text-gray-700">{cat.name}</span><span className="font-semibold text-white print:text-black">{formatCurrency(cat.value, primaryCurrency)}</span></div><div className="w-full bg-base-300 rounded-full h-1.5"><div className="h-1.5 rounded-full" style={{ width: `${(cat.value / (reportData.totalIncome || 1)) * 100}%`, backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}></div></div></div>
+                                ))}
+                            </div>
+                        ) : <p className="text-content-200 print:text-gray-600">No income recorded in this period.</p>}
+                    </Card>
+                </div>
+             )}
+        </div>
+    );
+    
+    return (
+        <div className="animate-fade-in space-y-6">
+            <div className="print:hidden">
+                <Card>
+                    <div className="flex flex-col md:flex-row gap-4 items-center">
+                        <div className="flex-grow w-full"><label className="text-sm text-content-200">Start Date</label><CustomDatePicker value={startDate} onChange={setStartDate} /></div>
+                        <div className="flex-grow w-full"><label className="text-sm text-content-200">End Date</label><CustomDatePicker value={endDate} onChange={setEndDate} /></div>
+                        <div className="w-full md:w-auto flex-shrink-0 pt-5"><Button onClick={handleGenerateReport} disabled={isLoading} className="w-full">{isLoading ? 'Generating...' : 'Generate Report'}</Button></div>
+                    </div>
+                </Card>
+            </div>
+            
+            {isLoading && <div className="text-center py-10"><p className="text-content-200">Generating your financial report...</p></div>}
+            
+            {!isLoading && !reportData && <div className="text-center py-10"><p className="text-content-200">Select a date range and generate a report to see your financial summary.</p></div>}
+
+            {reportData && (
+                <>
+                    <div className="flex justify-end print:hidden">
+                        <Button onClick={() => window.print()} variant="secondary">{ICONS.export} Print / Save PDF</Button>
+                    </div>
+                    {renderPrintableReport()}
+                </>
+            )}
+        </div>
+    );
+};
+
 const VIEW_TITLES: { [key in View]: string } = {
   DASHBOARD: 'Dashboard', ACCOUNTS: 'Accounts', TRANSACTIONS: 'Transactions', BUDGETS: 'Budgets', GOALS: 'Financial Goals',
-  ASSETS: 'Assets', INVESTMENTS: 'Investments', SAVINGS: 'Savings', INSIGHTS: 'AI Insights', SETTINGS: 'Settings', SUBSCRIPTIONS: 'Subscriptions'
+  ASSETS: 'Assets', INVESTMENTS: 'Investments', SAVINGS: 'Savings', INSIGHTS: 'AI Insights', SETTINGS: 'Settings', SUBSCRIPTIONS: 'Subscriptions',
+  REPORTS: 'Financial Reports',
 };
 
 const BottomNavBar: React.FC<{
     activeView: View;
     setActiveView: (view: View) => void;
     onMoreClick: () => void;
-}> = ({ activeView, setActiveView, onMoreClick }) => {
+    className?: string;
+}> = ({ activeView, setActiveView, onMoreClick, className }) => {
     const { bottomNavViews } = useFinance();
 
     const navItems = useMemo(() => {
@@ -2477,7 +2624,7 @@ const BottomNavBar: React.FC<{
     }, [bottomNavViews]);
     
     return (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-base-200/50 backdrop-blur-lg border-t border-base-300 flex justify-around items-center z-40 h-20">
+        <nav className={classNames("md:hidden fixed bottom-0 left-0 right-0 bg-base-200/50 backdrop-blur-lg border-t border-base-300 flex justify-around items-center z-40 h-20", className)}>
             {navItems.map(item => (
                 <button
                     key={item.view}
@@ -2550,6 +2697,7 @@ export default function App() {
       case 'SETTINGS': return <SettingsView />;
       case 'INVESTMENTS': return <InvestmentsView />;
       case 'SAVINGS': return <SavingsView />;
+      case 'REPORTS': return <ReportsView />;
       default: return <DashboardView />;
     }
   };
@@ -2561,44 +2709,41 @@ export default function App() {
     </button>
   );
 
-  const MobileHeader: React.FC<{ onMenuClick: () => void; title: string; }> = ({ onMenuClick, title }) => (
-      <header className="md:hidden bg-base-100/50 backdrop-blur-sm p-4 flex items-center gap-4 sticky top-0 z-30 border-b border-base-300">
+  const MobileHeader: React.FC<{ onMenuClick: () => void; title: string; className?: string; }> = ({ onMenuClick, title, className }) => (
+      <header className={classNames("md:hidden bg-base-100/50 backdrop-blur-sm p-4 flex items-center gap-4 sticky top-0 z-30 border-b border-base-300", className)}>
         <button onClick={onMenuClick} className="text-content-100 hover:text-white" aria-label="Open menu"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg></button>
         <h1 className="text-xl font-bold text-white">{title}</h1>
       </header>
   );
   
-  const DesktopHeader: React.FC<{ title: string }> = ({ title }) => (
-      <header className="hidden md:block p-6">
+  const DesktopHeader: React.FC<{ title: string, className?: string; }> = ({ title, className }) => (
+      <header className={classNames("hidden md:block p-6", className)}>
         <h1 className="text-3xl font-bold text-white">{title}</h1>
       </header>
   );
   
-  const mainSidebarItems = useMemo(() => allNavItems.slice(0, 7), []);
-  const moreSidebarItems = useMemo(() => allNavItems.slice(7), []);
-
   return (
     <div className="flex h-screen bg-base-100">
       {isSidebarOpen && <div className="md:hidden fixed inset-0 bg-black bg-opacity-60 z-40" onClick={() => setIsSidebarOpen(false)}></div>}
-      <aside className={classNames("fixed inset-y-0 left-0 w-72 bg-base-200 p-6 flex flex-col z-50 transform transition-transform duration-300 ease-in-out", "md:relative md:translate-x-0", isSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
+      <aside className={classNames("fixed inset-y-0 left-0 w-72 bg-base-200 p-6 flex flex-col z-50 transform transition-transform duration-300 ease-in-out print:hidden", "md:relative md:translate-x-0", isSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex items-center space-x-3 mb-10 px-2">{ICONS.logo}<span className="text-2xl font-bold text-white">FinanSage</span></div>
         <nav className="space-y-2 flex-grow overflow-y-auto">
-            {mainSidebarItems.map(item => <NavItem key={item.view} {...item} />)}
+            {mainNavItems.map(item => <NavItem key={item.view} {...item} />)}
             <div className="pt-4 mt-2 border-t border-base-300">
-                {moreSidebarItems.map(item => <NavItem key={item.view} {...item} />)}
+                {moreNavItems.map(item => <NavItem key={item.view} {...item} />)}
             </div>
         </nav>
         <div className="mt-auto"><NavItem view="SETTINGS" label="Settings" icon={ICONS.settings} /></div>
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <MobileHeader onMenuClick={() => setIsSidebarOpen(true)} title={VIEW_TITLES[activeView]} />
-        <DesktopHeader title={VIEW_TITLES[activeView]} />
+        <MobileHeader onMenuClick={() => setIsSidebarOpen(true)} title={VIEW_TITLES[activeView]} className="print:hidden"/>
+        <DesktopHeader title={VIEW_TITLES[activeView]} className="print:hidden"/>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8">{renderView()}</main>
       </div>
       
-      <BottomNavBar activeView={activeView} setActiveView={setActiveView} onMoreClick={() => setIsMoreSheetOpen(true)} />
-      <FloatingActionButton onAddManually={() => openAddEditTxModal()} onScanReceipt={openScannerModal} />
+      <BottomNavBar activeView={activeView} setActiveView={setActiveView} onMoreClick={() => setIsMoreSheetOpen(true)} className="print:hidden" />
+      <FloatingActionButton onAddManually={() => openAddEditTxModal()} onScanReceipt={openScannerModal} className="print:hidden" />
       
       {/* Global Modals */}
       <Modal isOpen={isAddEditTxModalOpen} onClose={closeTxModal} title={editingTransaction ? "Edit Transaction" : prefilledTxData?.description ? "Confirm Scanned Transaction" : "Add Transaction"}>

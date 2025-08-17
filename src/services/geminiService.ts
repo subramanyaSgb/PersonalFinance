@@ -11,6 +11,13 @@ if (!API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: API_KEY! });
 
+const formatDate = (isoString: string | Date): string => {
+    if (!isoString) return 'N/A';
+    const date = typeof isoString === 'string' ? new Date(isoString) : isoString;
+    if (isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
 export const getFinancialInsights = async (
   transactions: Transaction[],
   accounts: Account[],
@@ -280,4 +287,54 @@ export const findSubscriptions = async (transactions: Transaction[], categories:
         console.error("Error finding subscriptions:", error);
         return [];
     }
+};
+
+export const generateFinancialReport = async (
+  transactions: Transaction[],
+  categories: Category[],
+  startDate: string,
+  endDate: string
+): Promise<string> => {
+  if (!API_KEY) return "API Key not configured. AI analysis is disabled.";
+  if (transactions.length === 0) return "### No transactions in the selected period to analyze.";
+
+  const MAX_TRANSACTIONS = 500;
+  const isTruncated = transactions.length > MAX_TRANSACTIONS;
+  const transactionsForPrompt = (isTruncated ? transactions.slice(0, MAX_TRANSACTIONS) : transactions)
+    .map(t => ({
+      date: t.date.split('T')[0],
+      description: t.description,
+      amount: t.amount,
+      type: t.type,
+      category: categories.find(c => c.id === t.categoryId)?.name || 'Uncategorized',
+    }));
+
+  const prompt = `
+    You are an expert financial analyst. Generate a professional financial report for the period from ${formatDate(startDate)} to ${formatDate(endDate)}.
+    The report must be well-structured, insightful, and formatted in markdown.
+    ${isTruncated ? `\n\n*Note: The analysis is based on the most recent ${MAX_TRANSACTIONS} transactions in this period due to data limits.*` : ''}
+
+    Transaction Data:
+    ${JSON.stringify(transactionsForPrompt)}
+
+    Please structure the report with the following sections using markdown formatting. Do not use level 1 headers (#). Use level 2 (##) and level 3 (###) headers, bold text, and bullet points.
+    - **Executive Summary**: A high-level overview of the user's financial activity during this period.
+    - **Income vs. Expenses**: A clear breakdown of total income, total expenses, and the resulting net savings or deficit.
+    - **Spending Deep-Dive**: An analysis of the top 5 spending categories. Include the total amount and percentage of total expenses for each.
+    - **Actionable Recommendations**: Provide 3-5 specific, data-driven recommendations for financial improvement based *only* on the provided transaction data.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        systemInstruction: "You are a helpful financial analyst AI. You will generate a clear, professional report in markdown format based on the user's data. Be encouraging and focus on actionable advice."
+      }
+    });
+    return response.text || "Could not generate AI analysis.";
+  } catch (error) {
+    console.error("Error generating financial report:", error);
+    return "An error occurred while generating the AI analysis. Please check your API key and network connection.";
+  }
 };

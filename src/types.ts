@@ -136,6 +136,6 @@ export interface NetWorthHistoryEntry {
     value: number;
 }
 
-export type View = 'DASHBOARD' | 'ACCOUNTS' | 'TRANSACTIONS' | 'BUDGETS' | 'INSIGHTS' | 'SETTINGS' | 'INVESTMENTS' | 'SAVINGS' | 'GOALS' | 'ASSETS' | 'SUBSCRIPTIONS';
+export type View = 'DASHBOARD' | 'ACCOUNTS' | 'TRANSACTIONS' | 'BUDGETS' | 'INSIGHTS' | 'SETTINGS' | 'INVESTMENTS' | 'SAVINGS' | 'GOALS' | 'ASSETS' | 'SUBSCRIPTIONS' | 'REPORTS';
 
 export type DashboardCard = 'NET_WORTH' | 'MONTHLY_SUMMARY' | 'SPENDING_CATEGORY' | 'RECENT_TRANSACTIONS' | 'BUDGET_STATUS';
