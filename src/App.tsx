@@ -166,7 +166,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const today = new Date().toISOString().split('T')[0];
       const newNetWorth = accounts.reduce((sum, acc) => {
           const multiplier = acc.type === AccountType.LOAN || acc.type === AccountType.CREDIT_CARD ? -1 : 1;
-          return sum + (acc.balance * multiplier);
+          const balance = Number(acc.balance) || 0; // Sanitize balance
+          return sum + (balance * multiplier);
       }, 0);
 
       setNetWorthHistory(prevHistory => {
@@ -632,7 +633,7 @@ const DashboardView: React.FC = () => {
             if (!spendingByCategory[category.id]) {
                 spendingByCategory[category.id] = { id: category.id, name: category.name, value: 0 };
             }
-            spendingByCategory[category.id].value += t.amount;
+            spendingByCategory[category.id].value += Number(t.amount) || 0; // Sanitize amount
         }
       });
       
@@ -643,7 +644,7 @@ const DashboardView: React.FC = () => {
     const monthlyExpenses = transactions
       .filter(t => t.type === TransactionType.EXPENSE && new Date(t.date).getMonth() === new Date().getMonth())
       .reduce((acc, t) => {
-        acc[t.categoryId] = (acc[t.categoryId] || 0) + t.amount;
+        acc[t.categoryId] = (acc[t.categoryId] || 0) + (Number(t.amount) || 0); // Sanitize amount
         return acc;
       }, {} as { [key: string]: number });
 
@@ -661,6 +662,14 @@ const DashboardView: React.FC = () => {
   }, [transactions, budgets, getCategoryById]);
 
   const PIE_COLORS = ['#C084FC', '#818CF8', '#F59E0B', '#F87171', '#6366F1', '#34D399'];
+  
+  const monthlyIncome = useMemo(() => transactions
+    .filter(t => t.type === TransactionType.INCOME && new Date(t.date).getMonth() === new Date().getMonth())
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0), [transactions]);
+    
+  const monthlyExpenses = useMemo(() => transactions
+    .filter(t => t.type === TransactionType.EXPENSE && new Date(t.date).getMonth() === new Date().getMonth())
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0), [transactions]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -731,11 +740,11 @@ const DashboardView: React.FC = () => {
         </Card>
         <Card className="lg:col-span-2">
           <h4 className="font-semibold text-content-200 text-sm">Income this month</h4>
-          <p className="text-3xl font-bold text-accent-success mt-1">{formatCurrency(transactions.filter(t => t.type === TransactionType.INCOME && new Date(t.date).getMonth() === new Date().getMonth()).reduce((sum, t) => sum + t.amount, 0), primaryCurrency)}</p>
+          <p className="text-3xl font-bold text-accent-success mt-1">{formatCurrency(monthlyIncome, primaryCurrency)}</p>
         </Card>
         <Card className="lg:col-span-2">
           <h4 className="font-semibold text-content-200 text-sm">Expenses this month</h4>
-          <p className="text-3xl font-bold text-accent-error mt-1">{formatCurrency(transactions.filter(t => t.type === TransactionType.EXPENSE && new Date(t.date).getMonth() === new Date().getMonth()).reduce((sum, t) => sum + t.amount, 0), primaryCurrency)}</p>
+          <p className="text-3xl font-bold text-accent-error mt-1">{formatCurrency(monthlyExpenses, primaryCurrency)}</p>
         </Card>
       </div>
 
@@ -762,7 +771,7 @@ const DashboardView: React.FC = () => {
                   const isIncome = t.type === TransactionType.INCOME;
                   const isTransfer = t.type === TransactionType.TRANSFER;
                   const account = getAccountById(t.accountId);
-                  const toAccount = isTransfer ? getAccountById(t.toAccountId!) : undefined;
+                  const toAccount = isTransfer && t.toAccountId ? getAccountById(t.toAccountId) : undefined;
                   return (
                       <div key={t.id} className="flex justify-between items-center p-3 rounded-xl hover:bg-base-300/30 animate-list-item-in" style={{ animationDelay: `${index * 50}ms` }}>
                           <div className="flex items-center gap-4">
@@ -831,8 +840,8 @@ const AccountForm: React.FC<{onClose: () => void; existingAccount?: Account}> = 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const { name, type, balance, currency } = account;
-        if (!name || !type || balance === undefined || !currency) {
-            alert("Please fill all required fields.");
+        if (!name || !type || typeof balance !== 'number' || isNaN(balance) || !currency) {
+            alert("Please fill all required fields with valid values.");
             return;
         }
 
@@ -998,7 +1007,7 @@ const TransactionForm: React.FC<{onClose: () => void; existingTransaction?: Tran
     const { addTransaction, updateTransaction, accounts, categories } = useFinance();
     const [type, setType] = useState(prefilledData?.type || existingTransaction?.type || TransactionType.EXPENSE);
     const [description, setDescription] = useState(prefilledData?.description || existingTransaction?.description || '');
-    const [amount, setAmount] = useState(prefilledData?.amount || existingTransaction?.amount || undefined);
+    const [amount, setAmount] = useState<number | undefined>(prefilledData?.amount || existingTransaction?.amount || undefined);
     const [date, setDate] = useState(formatInputDate(prefilledData?.date || existingTransaction?.date));
     const [accountId, setAccountId] = useState(prefilledData?.accountId || existingTransaction?.accountId || '');
     const [toAccountId, setToAccountId] = useState(existingTransaction?.toAccountId || '');
@@ -1029,7 +1038,10 @@ const TransactionForm: React.FC<{onClose: () => void; existingTransaction?: Tran
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const parsedTags = tags.split(',').map(t => t.trim()).filter(Boolean);
-        if (amount === undefined || amount <= 0) return alert("Please enter a valid amount.");
+        if (typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
+            alert("Please enter a valid positive amount.");
+            return;
+        }
         const transactionData: Omit<Transaction, 'id'> = {
             date: new Date(date).toISOString(),
             description,
@@ -1298,7 +1310,7 @@ const TransactionsView: React.FC<TransactionsViewProps> = ({ openAddEditModal })
                                             {t.notes && <div className="text-xs text-content-200 mt-1 truncate" title={t.notes}>{t.notes}</div>}
                                         </td>
                                         <td className="p-3">{isTransfer ? 'Transfer' : category?.name || 'N/A'}</td>
-                                        <td className="p-3">{account?.name || 'N/A'}{isTransfer && ` -> ${getAccountById(t.toAccountId!)?.name}`}</td>
+                                        <td className="p-3">{account?.name || 'N/A'}{isTransfer && t.toAccountId && ` -> ${getAccountById(t.toAccountId)?.name}`}</td>
                                         <td className={classNames("p-3 font-bold text-right", isIncome ? 'text-accent-success' : isTransfer ? 'text-content-100' : 'text-accent-error')}>{isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}</td>
                                         <td className="p-3 text-right"><div className="flex justify-end gap-1.5"><Button variant="secondary" className="p-1.5" onClick={() => openAddEditModal(t)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Delete transaction: ${t.description}?`) && deleteTransaction(t.id)}>{ICONS.trash}</Button></div></td>
                                     </tr>
@@ -1342,9 +1354,9 @@ const TransactionCard: React.FC<{transaction: Transaction, onEdit: () => void, o
             {t.notes && <p className="text-sm text-content-200 mt-2 pt-2 border-t border-base-300">{t.notes}</p>}
             <div className="mt-3 border-t border-base-300 pt-3 text-sm grid grid-cols-2 gap-x-4 gap-y-1">
                 <div><span className="text-content-200">Category</span></div><div className="font-medium text-white text-right">{isTransfer ? 'Transfer' : category?.name || 'N/A'}</div>
-                <div><span className="text-content-200">Account</span></div><div className="font-medium text-white text-right">{account?.name || 'N/A'}{isTransfer && ` -> ${getAccountById(t.toAccountId!)?.name}`}</div>
+                <div><span className="text-content-200">Account</span></div><div className="font-medium text-white text-right">{account?.name || 'N/A'}{isTransfer && t.toAccountId && ` -> ${getAccountById(t.toAccountId)?.name}`}</div>
                 <div><span className="text-content-200">Date</span></div><div className="font-medium text-white text-right">{formatDate(t.date)}</div>
-                {t.tags && t.tags.length > 0 && (
+                {Array.isArray(t.tags) && t.tags.length > 0 && (
                     <React.Fragment>
                         <div className="mt-1"><span className="text-content-200">Tags</span></div>
                         <div className="flex flex-wrap gap-1 justify-end max-w-full mt-1">
