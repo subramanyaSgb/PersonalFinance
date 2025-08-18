@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, SavingsInstrument, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard, InvestmentType, SavingsType } from './types';
@@ -30,6 +31,25 @@ const fileToBase64 = (file: File): Promise<string> => {
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = error => reject(error);
     });
+};
+const formatGroupDate = (dateString: string) => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const date = new Date(dateString);
+    date.setUTCHours(0, 0, 0, 0); // Use UTC to avoid timezone shifts from date string
+    
+    today.setUTCHours(0, 0, 0, 0);
+    yesterday.setUTCHours(0, 0, 0, 0);
+
+    if (date.getTime() === today.getTime()) {
+        return 'Today';
+    }
+    if (date.getTime() === yesterday.getTime()) {
+        return 'Yesterday';
+    }
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 };
 
 // LOCAL STORAGE HOOK
@@ -1213,1528 +1233,418 @@ const TransactionForm: React.FC<{onClose: () => void; existingTransaction?: Tran
                 <div>
                     <label className="text-sm text-content-200">Receipt</label>
                     <div className="mt-1 relative w-24 h-24">
-                        <img src={receiptImage} alt="Receipt preview" className="rounded-md w-24 h-24 object-cover" />
-                        <button type="button" onClick={() => setReceiptImage(undefined)} className="absolute -top-2 -right-2 bg-accent-error text-white rounded-full p-0.5 w-6 h-6 flex items-center justify-center leading-none">&times;</button>
+                        <img src={receiptImage.startsWith('data:') ? receiptImage : `data:image/jpeg;base64,${receiptImage}`} alt="Receipt" className="rounded-lg object-cover w-full h-full" />
+                        <button 
+                          type="button" 
+                          onClick={() => setReceiptImage(undefined)} 
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 leading-none w-6 h-6 flex items-center justify-center text-lg"
+                        >
+                            &times;
+                        </button>
                     </div>
                 </div>
             )}
             
             <div className="flex justify-end gap-3 pt-4">
                 <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button type="submit">{existingTransaction ? 'Update' : 'Create'} Transaction</Button>
+                <Button type="submit">{existingTransaction ? 'Update' : 'Save'} Transaction</Button>
             </div>
         </form>
     );
 };
 
-const ReceiptScannerModal: React.FC<{
-    onScanComplete: (data: Partial<Transaction>) => void;
-}> = ({ onScanComplete }) => {
-    const [image, setImage] = useState<{base64: string; file: File} | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState('');
+const TransactionsView: React.FC<{ openTransactionModal: (data?: Partial<Transaction>) => void }> = ({ openTransactionModal }) => {
+    const { transactions, deleteTransaction, getCategoryById, getAccountById, primaryCurrency, accounts, categories } = useFinance();
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filters, setFilters] = useState<{ accountId?: string; categoryId?: string; type?: TransactionType }>({});
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+    const actionMenuRef = useRef<HTMLDivElement>(null);
 
-    const handleFileSelect = (base64: string, file: File) => {
-        setImage({ base64, file });
-        setError('');
-    };
-
-    const handleScan = async () => {
-        if (!image) return;
-        setIsLoading(true);
-        setError('');
-        try {
-            const result = await processReceiptImage(image.base64.split(',')[1], image.file.type);
-            if (result) {
-                onScanComplete({
-                    description: result.merchantName,
-                    amount: result.totalAmount,
-                    date: result.transactionDate,
-                    type: TransactionType.EXPENSE,
-                    receiptImage: image.base64,
-                });
-            } else {
-                setError("Could not extract details from the receipt. Please try another image or enter manually.");
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (actionMenuRef.current && !actionMenuRef.current.contains(event.target as Node)) {
+                setActionMenuId(null);
             }
-        } catch (e) {
-            setError("An error occurred during scanning. Please try again.");
-            console.error(e);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-    
-    return (
-        <div className="space-y-4">
-            {!image ? (
-                <div className="space-y-3">
-                    <p className="text-center text-content-200">Use your camera or upload an image of your receipt.</p>
-                    <div className="flex justify-center gap-4">
-                         <FileInputButton onFileSelect={handleFileSelect} capture="environment">
-                             {ICONS.camera} Take Photo
-                         </FileInputButton>
-                         <FileInputButton onFileSelect={handleFileSelect}>
-                             {ICONS.upload} Upload File
-                         </FileInputButton>
-                    </div>
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <img src={image.base64} alt="Receipt preview" className="w-full max-h-64 object-contain rounded-md" />
-                    {error && <p className="text-accent-error text-sm text-center">{error}</p>}
-                    <div className="flex justify-end gap-2">
-                        <Button variant="secondary" onClick={() => setImage(null)} disabled={isLoading}>Change Image</Button>
-                        <Button onClick={handleScan} disabled={isLoading}>
-                            {isLoading ? <SkeletonLoader className="w-24 h-4" /> : ICONS.scan}
-                            {isLoading ? 'Scanning...' : 'Scan Receipt'}
-                        </Button>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-const TransactionCard: React.FC<{
-  transaction: Transaction;
-  onEdit: () => void;
-  onDelete: () => void;
-  style?: React.CSSProperties;
-}> = ({ transaction, onEdit, onDelete, style }) => {
-    const { getCategoryById, getAccountById, primaryCurrency } = useFinance();
-    const category = getCategoryById(transaction.categoryId);
-    const account = getAccountById(transaction.accountId);
-    const toAccount = transaction.toAccountId ? getAccountById(transaction.toAccountId) : null;
-    const isIncome = transaction.type === TransactionType.INCOME;
-    const isTransfer = transaction.type === TransactionType.TRANSFER;
-
-    const handleDelete = () => {
-        if(window.confirm(`Delete transaction: ${transaction.description}?`)) {
-            onDelete();
-        }
-    };
-
-    return (
-        <Card className="p-0 animate-list-item-in" style={style}>
-            <div className="flex justify-between items-center p-4">
-                <div className="flex items-center gap-4 min-w-0">
-                    <span className="p-2.5 bg-base-100 rounded-full text-content-200 flex-shrink-0">
-                        {ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-white truncate" title={transaction.description}>{transaction.description}</p>
-                        <p className="text-xs text-content-200 truncate">{formatDate(transaction.date)} &bull; {isTransfer ? `${account?.name} → ${toAccount?.name}` : account?.name}</p>
-                    </div>
-                </div>
-                <p className={classNames("font-bold text-lg whitespace-nowrap pl-2", isIncome ? 'text-accent-success' : isTransfer ? 'text-content-100' : 'text-accent-error')}>
-                    {isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(transaction.amount, account?.currency || primaryCurrency)}
-                </p>
-            </div>
-            {transaction.notes && (
-                <div className="px-4 pb-3 border-b border-base-300">
-                    <p className="text-sm text-content-200 italic break-words">"{transaction.notes}"</p>
-                </div>
-            )}
-            <div className="flex justify-end gap-2 p-2 bg-base-300/20 rounded-b-2xl">
-                <Button variant="secondary" className="px-3 py-1 text-sm" onClick={onEdit}>{ICONS.edit} Edit</Button>
-                <Button variant="danger" className="px-3 py-1 text-sm" onClick={handleDelete}>{ICONS.trash} Delete</Button>
-            </div>
-        </Card>
-    );
-};
-
-interface TransactionsViewProps {
-  openAddEditModal: (transaction?: Transaction) => void;
-}
-
-const TransactionsView: React.FC<TransactionsViewProps> = ({ openAddEditModal }) => {
-    const { transactions, accounts, categories, deleteTransaction, getCategoryById, getAccountById, primaryCurrency } = useFinance();
-    const [isFilterVisible, setIsFilterVisible] = useState(false);
-    
-    const initialFilters = { description: '', type: '', categoryId: '', accountId: '', dateStart: '', dateEnd: '' };
-    const [filters, setFilters] = useState(initialFilters);
-
-    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const filteredTransactions = useMemo(() => {
         return transactions.filter(t => {
-            const descMatch = filters.description ? t.description.toLowerCase().includes(filters.description.toLowerCase()) : true;
-            const typeMatch = filters.type ? t.type === filters.type : true;
-            const categoryMatch = filters.categoryId ? t.categoryId === filters.categoryId : true;
-            const accountMatch = filters.accountId ? (t.accountId === filters.accountId || t.toAccountId === filters.accountId) : true;
-            const date = new Date(t.date);
-            const startDateMatch = filters.dateStart ? date >= new Date(filters.dateStart) : true;
-            const endDateMatch = filters.dateEnd ? date <= new Date(filters.dateEnd + 'T23:59:59') : true;
-            return descMatch && typeMatch && categoryMatch && accountMatch && startDateMatch && endDateMatch;
+            const descriptionMatch = t.description.toLowerCase().includes(searchTerm.toLowerCase());
+            const accountMatch = !filters.accountId || t.accountId === filters.accountId;
+            const categoryMatch = !filters.categoryId || t.categoryId === filters.categoryId;
+            const typeMatch = !filters.type || t.type === filters.type;
+            return descriptionMatch && accountMatch && categoryMatch && typeMatch;
         });
-    }, [transactions, filters]);
+    }, [transactions, searchTerm, filters]);
 
-    const handleExportCSV = () => {
-        if (filteredTransactions.length === 0) return alert("No transactions to export.");
-        const headers = ['ID', 'Date', 'Description', 'Notes', 'Amount', 'Type', 'Category', 'Account', 'To Account', 'Tags'];
-        const escapeCSV = (field: any) => {
-            if (field === null || field === undefined) return '';
-            const str = String(field);
-            if (str.includes(',') || str.includes('"') || str.includes('\n')) return `"${str.replace(/"/g, '""')}"`;
-            return str;
-        };
-        const rows = filteredTransactions.map(t => [
-            escapeCSV(t.id), escapeCSV(t.date), escapeCSV(t.description), escapeCSV(t.notes), escapeCSV(t.amount),
-            escapeCSV(t.type), escapeCSV(getCategoryById(t.categoryId)?.name || 'N/A'), escapeCSV(getAccountById(t.accountId)?.name || 'N/A'),
-            escapeCSV(t.toAccountId ? getAccountById(t.toAccountId)?.name || '' : ''), escapeCSV(t.tags?.join('|') || '')
-        ].join(','));
-        const csvContent = [headers.join(','), ...rows].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `finansage_transactions_${new Date().toISOString().split('T')[0]}.csv`;
-        link.click();
-        URL.revokeObjectURL(link.href);
-    };
+    const groupedTransactions = useMemo(() => {
+        return filteredTransactions.reduce((acc, t) => {
+            const dateKey = t.date.split('T')[0];
+            if (!acc[dateKey]) {
+                acc[dateKey] = [];
+            }
+            acc[dateKey].push(t);
+            return acc;
+        }, {} as { [key: string]: Transaction[] });
+    }, [filteredTransactions]);
     
-    const inputClasses = "w-full bg-base-100 p-2 rounded-md text-white border-base-300 focus:ring-1 focus:ring-brand-primary text-sm";
-    
+    const FilterPanel = () => (
+      <div className="bg-base-200/80 p-4 rounded-xl border border-base-300 mb-6 space-y-4 animate-fade-in">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <select value={filters.accountId || ''} onChange={e => setFilters(f => ({...f, accountId: e.target.value || undefined}))} className="w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300">
+                <option value="">All Accounts</option>
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <select value={filters.categoryId || ''} onChange={e => setFilters(f => ({...f, categoryId: e.target.value || undefined}))} className="w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300">
+                <option value="">All Categories</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={filters.type || ''} onChange={e => setFilters(f => ({...f, type: e.target.value as TransactionType || undefined}))} className="w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300">
+                <option value="">All Types</option>
+                {Object.values(TransactionType).map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+        </div>
+        <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => { setFilters({}); setIsFilterOpen(false); }}>Reset Filters</Button>
+        </div>
+      </div>
+    );
+
     return (
         <div className="animate-fade-in">
-            <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
-                <h2 className="text-3xl font-bold text-white">Transactions</h2>
-                <div className="flex gap-3">
-                    <Button onClick={() => setIsFilterVisible(p => !p)} variant="secondary" className={isFilterVisible ? 'bg-base-300' : ''}>{ICONS.filter}<span className="hidden sm:inline">Filter</span></Button>
-                    <Button onClick={handleExportCSV} variant="secondary">{ICONS.export}<span className="hidden sm:inline">Export</span></Button>
-                </div>
-            </div>
-
-            {isFilterVisible && (
-                 <Card className="mb-6 p-4 animate-fade-in">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-end">
-                        <div className="sm:col-span-2 lg:col-span-3 xl:col-span-1">
-                            <label htmlFor="filter-desc" className="block text-xs font-medium text-content-200 mb-1">Description</label>
-                            <input id="filter-desc" type="text" name="description" placeholder="e.g. Coffee" value={filters.description} onChange={handleFilterChange} className={inputClasses} />
-                        </div>
-                        <div>
-                            <label htmlFor="filter-type" className="block text-xs font-medium text-content-200 mb-1">Type</label>
-                            <select id="filter-type" name="type" value={filters.type} onChange={handleFilterChange} className={inputClasses}>
-                                <option value="">All</option>
-                                {Object.values(TransactionType).map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="filter-category" className="block text-xs font-medium text-content-200 mb-1">Category</label>
-                            <select id="filter-category" name="categoryId" value={filters.categoryId} onChange={handleFilterChange} className={inputClasses} disabled={!!filters.type && filters.type === TransactionType.TRANSFER}>
-                                <option value="">All</option>
-                                {categories.filter(c => filters.type ? c.type === filters.type : true).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="filter-account" className="block text-xs font-medium text-content-200 mb-1">Account</label>
-                            <select id="filter-account" name="accountId" value={filters.accountId} onChange={handleFilterChange} className={inputClasses}>
-                                <option value="">All</option>
-                                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="col-span-full sm:col-span-2 flex gap-4">
-                            <div className="w-full">
-                                <label htmlFor="filter-dateStart" className="block text-xs font-medium text-content-200 mb-1">Date From</label>
-                                <CustomDatePicker value={filters.dateStart} onChange={date => setFilters(p => ({...p, dateStart: date}))} />
-                            </div>
-                            <div className="w-full">
-                                <label htmlFor="filter-dateEnd" className="block text-xs font-medium text-content-200 mb-1">Date To</label>
-                                <CustomDatePicker value={filters.dateEnd} onChange={date => setFilters(p => ({...p, dateEnd: date}))} />
-                            </div>
-                        </div>
-                        <div className="col-span-full sm:col-span-1 flex items-end">
-                            <Button onClick={() => setFilters(initialFilters)} variant="secondary" className="w-full">Reset Filters</Button>
+            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                <h2 className="text-3xl font-bold text-white self-start md:self-center">Transactions</h2>
+                 <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="relative flex-grow">
+                        <input 
+                            type="text"
+                            placeholder="Search transactions..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full bg-base-200/80 p-3 pl-10 rounded-xl text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to"
+                        />
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-200">
+                            {ICONS.search}
                         </div>
                     </div>
-                </Card>
-            )}
-            <p className="text-xs text-content-200 mb-4">Showing {filteredTransactions.length} of {transactions.length} transactions.</p>
+                     <Button variant="secondary" onClick={() => setIsFilterOpen(p => !p)}>{ICONS.filter} <span className="hidden sm:inline">Filter</span></Button>
+                </div>
+            </div>
             
-            <div className="hidden md:block"> {/* Desktop Table */}
-                <Card>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="border-b border-base-300 text-xs text-content-200 uppercase"><tr><th className="p-3">Date</th><th className="p-3">Description</th><th className="p-3">Category</th><th className="p-3">Account</th><th className="p-3 text-right">Amount</th><th className="p-3"></th></tr></thead>
-                            <tbody>
-                                {filteredTransactions.map(t => {
+            {isFilterOpen && <FilterPanel />}
+
+            {Object.keys(groupedTransactions).length > 0 ? (
+                <Card className="p-0 overflow-hidden">
+                    {Object.entries(groupedTransactions).map(([date, txsOnDate]) => (
+                        <div key={date}>
+                            <h3 className="bg-base-200/50 px-4 py-2 text-sm font-semibold text-content-100 sticky top-[65px] md:top-[73px] backdrop-blur-sm z-10">{formatGroupDate(date)}</h3>
+                            <div className="px-4">
+                                {txsOnDate.map(t => {
                                     const category = getCategoryById(t.categoryId);
-                                    const account = getAccountById(t.accountId);
                                     const isIncome = t.type === TransactionType.INCOME;
                                     const isTransfer = t.type === TransactionType.TRANSFER;
+                                    const account = getAccountById(t.accountId);
+                                    const toAccount = isTransfer && t.toAccountId ? getAccountById(t.toAccountId) : undefined;
+                                    
                                     return (
-                                    <tr key={t.id} className="border-b border-base-300 hover:bg-base-300/20">
-                                        <td className="p-3 whitespace-nowrap">{formatDate(t.date)}</td>
-                                        <td className="p-3">
-                                            <div className="font-semibold text-white flex items-center gap-2">{t.receiptImage && ICONS.scan} {t.description}</div>
-                                            {t.notes && <div className="text-xs text-content-200 mt-1 truncate" title={t.notes}>{t.notes}</div>}
-                                        </td>
-                                        <td className="p-3">{isTransfer ? 'Transfer' : category?.name || 'N/A'}</td>
-                                        <td className="p-3">{account?.name || 'N/A'}{isTransfer && t.toAccountId && ` -> ${getAccountById(t.toAccountId)?.name}`}</td>
-                                        <td className={classNames("p-3 font-bold text-right", isIncome ? 'text-accent-success' : isTransfer ? 'text-content-100' : 'text-accent-error')}>{isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}</td>
-                                        <td className="p-3 text-right"><div className="flex justify-end gap-1.5"><Button variant="secondary" className="p-1.5" onClick={() => openAddEditModal(t)}>{ICONS.edit}</Button><Button variant="danger" className="p-1.5" onClick={() => window.confirm(`Delete transaction: ${t.description}?`) && deleteTransaction(t.id)}>{ICONS.trash}</Button></div></td>
-                                    </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
-                        {filteredTransactions.length === 0 && <p className="text-center p-8 text-content-200">{transactions.length > 0 ? "No transactions match filters." : "No transactions yet."}</p>}
-                    </div>
-                </Card>
-            </div>
-            <div className="md:hidden space-y-4"> {/* Mobile Cards */}
-                 {filteredTransactions.map((t, index) => <TransactionCard key={t.id} transaction={t} onEdit={() => openAddEditModal(t)} onDelete={() => deleteTransaction(t.id)} style={{ animationDelay: `${index * 50}ms` }} />)}
-                 {filteredTransactions.length === 0 && <p className="text-center p-8 text-content-200">{transactions.length > 0 ? "No transactions match filters." : "No transactions yet."}</p>}
-            </div>
-        </div>
-    );
-};
-
-const InvestmentsView: React.FC = () => {
-    const { investments, deleteInvestment, primaryCurrency } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingInvestment, setEditingInvestment] = useState<Investment | undefined>(undefined);
-    const [isAnalysisModalOpen, setAnalysisModalOpen] = useState(false);
-    const [analysisResult, setAnalysisResult] = useState('');
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-
-    const openModal = (investment?: Investment) => {
-        setEditingInvestment(investment);
-        setIsModalOpen(true);
-    };
-    
-    const closeModal = () => {
-        setEditingInvestment(undefined);
-        setIsModalOpen(false);
-    };
-
-    const handleAnalyzePortfolio = async () => {
-        setIsAnalyzing(true);
-        setAnalysisModalOpen(true);
-        setAnalysisResult('');
-        const result = await analyzePortfolio(investments);
-        setAnalysisResult(result);
-        setIsAnalyzing(false);
-    };
-
-    const toggleGroup = (name: string) => {
-        setExpandedGroups(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(name)) {
-                newSet.delete(name);
-            } else {
-                newSet.add(name);
-            }
-            return newSet;
-        });
-    };
-
-    const groupedInvestments = useMemo(() => {
-        const groups: Record<string, Investment[]> = investments.reduce((acc, inv) => {
-            (acc[inv.name] = acc[inv.name] || []).push(inv);
-            return acc;
-        }, {} as Record<string, Investment[]>);
-
-        return Object.values(groups).map(group => {
-            const totalUnits = group.reduce((sum, i) => sum + i.units, 0);
-            if (totalUnits === 0) return null;
-
-            const totalInvested = group.reduce((sum, i) => sum + (i.units * i.purchasePrice), 0);
-            const currentPrice = group[0]?.currentPrice || 0;
-            const totalCurrentValue = totalUnits * currentPrice;
-            const avgBuyPrice = totalInvested / totalUnits;
-            const gainLoss = totalCurrentValue - totalInvested;
-            const gainLossPercent = totalInvested > 0 ? (gainLoss / totalInvested) * 100 : 0;
-            
-            return {
-                name: group[0].name,
-                type: group[0].type,
-                totalUnits,
-                avgBuyPrice,
-                currentPrice,
-                totalCurrentValue,
-                gainLoss,
-                gainLossPercent,
-                purchases: group.sort((a,b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime()),
-            };
-        }).filter((g): g is NonNullable<typeof g> => g !== null)
-          .sort((a, b) => b.totalCurrentValue - a.totalCurrentValue);
-    }, [investments]);
-
-    const totalValue = useMemo(() => investments.reduce((sum, i) => sum + (i.units * i.currentPrice), 0), [investments]);
-    const totalInvested = useMemo(() => investments.reduce((sum, i) => sum + (i.units * i.purchasePrice), 0), [investments]);
-    const totalGainLoss = totalValue - totalInvested;
-
-    const portfolioAllocationData = useMemo(() => {
-        if (investments.length === 0) return [];
-        const allocation = investments.reduce((acc, investment) => {
-            const value = investment.units * investment.currentPrice;
-            if (!acc[investment.type]) {
-                acc[investment.type] = { name: investment.type, value: 0 };
-            }
-            acc[investment.type].value += value;
-            return acc;
-        }, {} as { [key: string]: { name: string, value: number } });
-
-        return Object.values(allocation);
-    }, [investments]);
-
-    const PIE_COLORS = ['#818CF8', '#C084FC', '#F59E0B', '#34D399'];
-
-    return (
-        <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                <h2 className="text-3xl font-bold text-white self-start md:self-center">Investments</h2>
-                <div className="flex gap-2 self-end md:self-center">
-                    <Button onClick={handleAnalyzePortfolio} variant="secondary" disabled={isAnalyzing || investments.length === 0}>
-                        {ICONS.insights} <span className="hidden sm:inline">Analyze Portfolio</span>
-                    </Button>
-                    <Button onClick={() => openModal()}>
-                        {ICONS.plus} <span className="hidden sm:inline">Add Investment</span>
-                    </Button>
-                </div>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-6 lg:col-span-1">
-                    <Card><h4 className="font-semibold text-content-200 text-sm">Total Invested</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalInvested, primaryCurrency)}</p></Card>
-                    <Card><h4 className="font-semibold text-content-200 text-sm">Current Value</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalValue, primaryCurrency)}</p></Card>
-                    <Card><h4 className="font-semibold text-content-200 text-sm">Total Gain/Loss</h4><p className={classNames("text-2xl font-bold mt-1", totalGainLoss >= 0 ? 'text-accent-success' : 'text-accent-error')}>{formatCurrency(totalGainLoss, primaryCurrency)}</p></Card>
-                </div>
-
-                <div className="lg:col-span-2">
-                    <Card className="h-full min-h-[290px] flex flex-col">
-                        <h3 className="text-lg font-bold text-white mb-4">Portfolio Allocation</h3>
-                         {portfolioAllocationData.length > 0 ? (
-                            <div className="flex-grow">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                            data={portfolioAllocationData}
-                                            cx="50%"
-                                            cy="50%"
-                                            labelLine={false}
-                                            outerRadius={80}
-                                            fill="#8884d8"
-                                            dataKey="value"
-                                            nameKey="name"
-                                            label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
-                                        >
-                                            {portfolioAllocationData.map((_, index) => (
-                                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                            ))}
-                                        </Pie>
-                                        <Tooltip
-                                            formatter={(value: number) => [formatCurrency(value, primaryCurrency), "Value"]}
-                                            contentStyle={{ backgroundColor: 'rgba(10, 10, 10, 0.8)', border: '1px solid #2A2A2A', borderRadius: '1rem' }}
-                                        />
-                                        <Legend wrapperStyle={{ bottom: -5 }} />
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </div>
-                        ) : (
-                            <div className="flex items-center justify-center flex-grow">
-                                <p className="text-content-200">No data for allocation chart.</p>
-                            </div>
-                        )}
-                    </Card>
-                </div>
-            </div>
-
-            <div className="space-y-4">
-                {groupedInvestments.length > 0 ? (
-                    groupedInvestments.map((group, index) => {
-                        const isExpanded = expandedGroups.has(group.name);
-                        return (
-                             <Card key={group.name} className="p-0" animate style={{ animationDelay: `${index * 50}ms`}}>
-                                <div className="p-4 cursor-pointer" onClick={() => toggleGroup(group.name)}>
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <h3 className="font-bold text-lg text-white">{group.name}</h3>
-                                            <p className="text-sm text-content-200">{group.type}</p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <p className="font-bold text-lg text-white">{formatCurrency(group.totalCurrentValue, primaryCurrency)}</p>
-                                            <span className={classNames("transition-transform duration-300", isExpanded ? "rotate-180" : "rotate-0")}>{ICONS['chevron-down']}</span>
-                                        </div>
-                                    </div>
-                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
-                                        <div><p className="text-content-200 text-xs">Total Units</p><p className="font-semibold text-white">{group.totalUnits.toFixed(2)}</p></div>
-                                        <div><p className="text-content-200 text-xs">Avg. Buy Price</p><p className="font-semibold text-white">{formatCurrency(group.avgBuyPrice, primaryCurrency)}</p></div>
-                                        <div><p className="text-content-200 text-xs">Current Price</p><p className="font-semibold text-white">{formatCurrency(group.currentPrice, primaryCurrency)}</p></div>
-                                        <div className={classNames(group.gainLoss >= 0 ? 'text-accent-success' : 'text-accent-error')}>
-                                            <p className="text-content-200 text-xs">P&L</p>
-                                            <p className="font-bold">{formatCurrency(group.gainLoss, primaryCurrency)} ({group.gainLossPercent.toFixed(2)}%)</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {isExpanded && (
-                                    <div className="bg-base-300/20 rounded-b-2xl p-3 space-y-2 animate-fade-in">
-                                        <h4 className="text-sm font-semibold text-white px-2">Purchase History</h4>
-                                        {group.purchases.map(purchase => (
-                                            <div key={purchase.id} className="flex justify-between items-center p-2 rounded-lg hover:bg-base-300/50">
-                                                <div>
-                                                    <p className="text-sm text-white">{formatDate(purchase.purchaseDate)}</p>
-                                                    <p className="text-xs text-content-200">{purchase.units} units @ {formatCurrency(purchase.purchasePrice, primaryCurrency)}</p>
-                                                </div>
-                                                <div className="flex gap-2">
-                                                    <Button variant="secondary" className="h-7 w-7 px-1 py-1" onClick={(e) => { e.stopPropagation(); openModal(purchase); }}>{ICONS.edit}</Button>
-                                                    <Button variant="danger" className="h-7 w-7 px-1 py-1" onClick={(e) => { e.stopPropagation(); window.confirm(`Delete this purchase of ${purchase.name}?`) && deleteInvestment(purchase.id); }}>{ICONS.trash}</Button>
+                                        <div key={t.id} className="flex items-center py-4 border-b border-base-300 last:border-b-0">
+                                            <div className="p-3 bg-base-100 rounded-full mr-4 text-content-200">
+                                                {ICONS[isTransfer ? 'transport' : category?.icon || 'misc']}
+                                            </div>
+                                            <div className="flex-grow min-w-0">
+                                                <p className="font-semibold text-white truncate">{t.description}</p>
+                                                <p className="text-sm text-content-200 truncate">
+                                                    {isTransfer ? `${account?.name || 'N/A'} → ${toAccount?.name || 'N/A'}` : `${category?.name || 'N/A'} • ${account?.name || 'N/A'}`}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center flex-shrink-0 ml-4">
+                                                <p className={classNames("font-bold text-base text-right mr-2",
+                                                    isIncome ? 'text-accent-success' :
+                                                    isTransfer ? 'text-content-100' : 'text-accent-error'
+                                                )}>
+                                                    {isIncome ? '+' : isTransfer ? '' : '-'} {formatCurrency(t.amount, account?.currency || primaryCurrency)}
+                                                </p>
+                                                <div className="relative">
+                                                    <button onClick={() => setActionMenuId(actionMenuId === t.id ? null : t.id)} className="p-2 rounded-full text-content-200 hover:bg-base-300 hover:text-white transition-colors">
+                                                        {ICONS['dots-vertical']}
+                                                    </button>
+                                                    {actionMenuId === t.id && (
+                                                        <div ref={actionMenuRef} className="absolute top-full right-0 mt-1 bg-base-300/90 backdrop-blur-md rounded-lg shadow-2xl w-32 z-20 animate-fade-in origin-top-right">
+                                                            <button 
+                                                                onClick={() => { openTransactionModal(t); setActionMenuId(null); }} 
+                                                                className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-white hover:bg-base-100/50 rounded-t-lg"
+                                                            >
+                                                                {ICONS.edit} Edit
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => { window.confirm('Are you sure you want to delete this transaction?') && deleteTransaction(t.id); setActionMenuId(null); }} 
+                                                                className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-accent-error hover:bg-base-100/50 rounded-b-lg"
+                                                            >
+                                                                {ICONS.trash} Delete
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
-                             </Card>
-                        )
-                    })
-                ) : (
-                    <div className="text-center py-20"><p className="text-content-200">No investments added yet.</p></div>
-                )}
-            </div>
-
-            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingInvestment ? 'Edit Investment' : 'Add Investment'}>
-                <InvestmentForm onClose={closeModal} existingInvestment={editingInvestment}/>
-            </Modal>
-            <Modal isOpen={isAnalysisModalOpen} onClose={() => setAnalysisModalOpen(false)} title="AI Portfolio Analysis">
-                 <div className="space-y-4">
-                    {isAnalyzing ? (
-                        <div className="space-y-4 p-4">
-                            <SkeletonLoader className="h-6 w-1/2" />
-                            <SkeletonLoader className="h-4 w-full" />
-                            <SkeletonLoader className="h-4 w-4/5" />
-                            <SkeletonLoader className="h-6 w-1/3 mt-4" />
-                            <SkeletonLoader className="h-4 w-full" />
-                        </div>
-                    ) : (
-                        <MarkdownRenderer content={analysisResult} />
-                    )}
-                 </div>
-            </Modal>
-        </div>
-    );
-};
-
-const InvestmentForm: React.FC<{onClose: () => void; existingInvestment?: Investment}> = ({onClose, existingInvestment}) => {
-    const { addInvestment, updateInvestment } = useFinance();
-    const [investment, setInvestment] = useState<Partial<Investment>>(
-        existingInvestment || { type: InvestmentType.STOCK, purchaseDate: formatInputDate() }
-    );
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent transition-colors";
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        const isNumber = ['units', 'purchasePrice', 'currentPrice'].includes(name);
-        setInvestment(prev => ({ ...prev, [name]: isNumber ? parseFloat(value) : value }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!investment.name || !investment.type || !investment.units || !investment.purchasePrice || !investment.currentPrice || !investment.purchaseDate) {
-            return alert("Please fill all fields.");
-        }
-        if (existingInvestment) {
-            updateInvestment(investment as Investment);
-        } else {
-            addInvestment(investment as Omit<Investment, 'id'>);
-        }
-        onClose();
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="text" name="name" placeholder="Investment Name (e.g. AAPL, NIFTYBEES)" value={investment.name || ''} onChange={handleChange} required className={inputClasses} />
-            <select name="type" value={investment.type} onChange={handleChange} className={inputClasses}>
-                {Object.values(InvestmentType).map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <input type="number" step="any" name="units" placeholder="Units / Quantity" value={investment.units ?? ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="purchasePrice" placeholder="Average Purchase Price" value={investment.purchasePrice ?? ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="currentPrice" placeholder="Current Market Price" value={investment.currentPrice ?? ''} onChange={handleChange} required className={inputClasses} />
-            <div>
-                <label className="text-sm text-content-200">Purchase Date</label>
-                <CustomDatePicker value={investment.purchaseDate || ''} onChange={date => setInvestment(p => ({...p, purchaseDate: date}))} />
-            </div>
-            <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button type="submit">{existingInvestment ? 'Update' : 'Add'} Investment</Button>
-            </div>
-        </form>
-    );
-};
-
-const SavingsView: React.FC = () => {
-  const { savings, deleteSaving, primaryCurrency } = useFinance();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSaving, setEditingSaving] = useState<SavingsInstrument | undefined>(undefined);
-
-  const openModal = (saving?: SavingsInstrument) => {
-      setEditingSaving(saving);
-      setIsModalOpen(true);
-  };
-  const closeModal = () => {
-      setEditingSaving(undefined);
-      setIsModalOpen(false);
-  };
-
-  return (
-    <div className="animate-fade-in">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-            <h2 className="text-3xl font-bold text-white self-start md:self-center">Savings Instruments</h2>
-            <Button onClick={() => openModal()} className="self-end md:self-center">
-                {ICONS.plus} <span className="hidden sm:inline">Add Instrument</span>
-            </Button>
-        </div>
-        
-        {savings.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {savings.map((s, index) => (
-                    <Card key={s.id} className="p-0" animate style={{ animationDelay: `${index * 50}ms`}}>
-                        <div className="p-4">
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <h3 className="font-bold text-lg text-white">{s.bankName} - {s.type}</h3>
-                                    <p className="text-sm text-content-200">{s.accountNumber}</p>
-                                </div>
-                                <div className="flex gap-2">
-                                    <Button variant="secondary" className="p-2 h-8 w-8" onClick={() => openModal(s)}>{ICONS.edit}</Button>
-                                    <Button variant="danger" className="p-2 h-8 w-8" onClick={() => window.confirm(`Delete this instrument?`) && deleteSaving(s.id)}>{ICONS.trash}</Button>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
-                                <div><p className="text-content-200 text-xs">{s.type === SavingsType.FD ? 'Principal' : 'Installment'}</p><p className="font-semibold text-white">{formatCurrency(s.principal, primaryCurrency)}</p></div>
-                                <div><p className="text-content-200 text-xs">Interest Rate</p><p className="font-semibold text-white">{s.interestRate.toFixed(2)}% p.a.</p></div>
-                                <div><p className="text-content-200 text-xs">Deposit Date</p><p className="font-semibold text-white">{formatDate(s.depositDate)}</p></div>
-                                <div><p className="text-content-200 text-xs">Maturity Date</p><p className="font-semibold text-white">{formatDate(s.maturityDate)}</p></div>
-                                {s.maturityAmount && (
-                                    <div className="col-span-2"><p className="text-content-200 text-xs">Maturity Amount</p><p className="font-semibold text-xl text-accent-success">{formatCurrency(s.maturityAmount, primaryCurrency)}</p></div>
-                                )}
-                            </div>
-                        </div>
-                    </Card>
-                ))}
-            </div>
-        ) : (
-            <div className="text-center py-20"><p className="text-content-200">No fixed deposits or recurring deposits added yet.</p></div>
-        )}
-
-        <Modal isOpen={isModalOpen} onClose={closeModal} title={editingSaving ? 'Edit Instrument' : 'Add Savings Instrument'}>
-            <SavingForm onClose={closeModal} existingSaving={editingSaving}/>
-        </Modal>
-    </div>
-  );
-};
-
-const SavingForm: React.FC<{onClose: () => void, existingSaving?: SavingsInstrument}> = ({ onClose, existingSaving }) => {
-    const { addSaving, updateSaving } = useFinance();
-    const [saving, setSaving] = useState<Partial<SavingsInstrument>>(
-        existingSaving || { type: SavingsType.FD, depositDate: formatInputDate(), maturityDate: formatInputDate() }
-    );
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent transition-colors";
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        const isNumber = ['principal', 'interestRate', 'maturityAmount'].includes(name);
-        setSaving(prev => ({ ...prev, [name]: isNumber ? parseFloat(value) : value }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!saving.type || !saving.bankName || !saving.principal || !saving.interestRate || !saving.depositDate || !saving.maturityDate) {
-            return alert("Please fill all required fields.");
-        }
-        if (existingSaving) {
-            updateSaving(saving as SavingsInstrument);
-        } else {
-            addSaving(saving as Omit<SavingsInstrument, 'id'>);
-        }
-        onClose();
-    };
-    
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <select name="type" value={saving.type} onChange={handleChange} className={inputClasses}>
-                {Object.values(SavingsType).map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <input type="text" name="bankName" placeholder="Bank / Institution Name" value={saving.bankName || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="text" name="accountNumber" placeholder="Account / Policy Number" value={saving.accountNumber || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="principal" placeholder={saving.type === SavingsType.FD ? 'Principal Amount' : 'Monthly Installment'} value={saving.principal ?? ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="interestRate" placeholder="Interest Rate (p.a. %)" value={saving.interestRate ?? ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="maturityAmount" placeholder="Maturity Amount (Optional)" value={saving.maturityAmount ?? ''} onChange={handleChange} className={inputClasses} />
-            <div>
-                <label className="text-sm text-content-200">Deposit Date</label>
-                <CustomDatePicker value={saving.depositDate || ''} onChange={date => setSaving(p => ({...p, depositDate: date}))} />
-            </div>
-            <div>
-                <label className="text-sm text-content-200">Maturity Date</label>
-                <CustomDatePicker value={saving.maturityDate || ''} onChange={date => setSaving(p => ({...p, maturityDate: date}))} />
-            </div>
-             <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button type="submit">{existingSaving ? 'Update' : 'Add'} Instrument</Button>
-            </div>
-        </form>
-    )
-};
-
-const AssetsView: React.FC = () => {
-    const { assets, deleteAsset, getAssetCategoryById, primaryCurrency } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingAsset, setEditingAsset] = useState<Asset | undefined>(undefined);
-
-    const openModal = (asset?: Asset) => {
-        setEditingAsset(asset);
-        setIsModalOpen(true);
-    };
-    const closeModal = () => {
-        setEditingAsset(undefined);
-        setIsModalOpen(false);
-    };
-    
-    return (
-         <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                <h2 className="text-3xl font-bold text-white self-start md:self-center">Assets</h2>
-                <Button onClick={() => openModal()} className="self-end md:self-center">
-                    {ICONS.plus} <span className="hidden sm:inline">Add Asset</span>
-                </Button>
-            </div>
-             {assets.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {assets.map((asset, index) => {
-                        const category = getAssetCategoryById(asset.categoryId);
-                        return(
-                        <Card key={asset.id} className="p-0" animate style={{ animationDelay: `${index * 50}ms`}}>
-                            {asset.imageUrl && <img src={asset.imageUrl} alt={asset.name} className="h-40 w-full object-cover"/>}
-                            <div className="p-4">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <h3 className="font-bold text-lg text-white">{asset.name}</h3>
-                                        <div className="flex items-center gap-2 text-sm text-content-200">
-                                            {ICONS[category?.icon || 'misc']}
-                                            <span>{category?.name || 'Uncategorized'}</span>
                                         </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Button variant="secondary" className="p-2 h-8 w-8" onClick={() => openModal(asset)}>{ICONS.edit}</Button>
-                                        <Button variant="danger" className="p-2 h-8 w-8" onClick={() => window.confirm(`Delete ${asset.name}?`) && deleteAsset(asset.id)}>{ICONS.trash}</Button>
-                                    </div>
-                                </div>
-                                <p className="text-2xl font-semibold my-3">{formatCurrency(asset.purchasePrice, primaryCurrency)}</p>
-                                <p className="text-xs text-content-200">Purchased on {formatDate(asset.purchaseDate)}</p>
-                                {asset.productUrl && <a href={asset.productUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-brand-gradient-to hover:underline flex items-center gap-1 mt-2">{ICONS.link} View Product</a>}
+                                    );
+                                })}
                             </div>
-                        </Card>
-                    )})}
-                </div>
-            ) : (
-                <div className="text-center py-20"><p className="text-content-200">No assets cataloged yet.</p></div>
-            )}
-            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingAsset ? 'Edit Asset' : 'Add Asset'}>
-                <AssetForm onClose={closeModal} existingAsset={editingAsset}/>
-            </Modal>
-         </div>
+                        </div>
+                    ))}
+                </Card>
+            ) : <div className="text-center py-20"><p className="text-content-200">No transactions found.</p></div>}
+        </div>
     );
 };
 
-const AssetForm: React.FC<{onClose: () => void, existingAsset?: Asset}> = ({ onClose, existingAsset }) => {
-    const { addAsset, updateAsset, assetCategories } = useFinance();
-    const [asset, setAsset] = useState<Partial<Asset>>(
-        existingAsset || { purchaseDate: formatInputDate() }
-    );
-    const [isFetchingUrl, setIsFetchingUrl] = useState(false);
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent transition-colors";
+const PlaceholderView: React.FC<{title: string}> = ({ title }) => (
+    <div className="flex justify-center items-center h-96 animate-fade-in">
+        <Card className="text-center">
+            <h2 className="text-2xl font-bold text-white mb-2">{title}</h2>
+            <p className="text-content-200">This feature is under construction. Check back soon!</p>
+        </Card>
+    </div>
+);
+const BudgetsView: React.FC = () => <PlaceholderView title="Budgets" />;
+const InsightsView: React.FC = () => <PlaceholderView title="AI Insights" />;
+const SettingsView: React.FC = () => <PlaceholderView title="Settings" />;
+const InvestmentsView: React.FC = () => <PlaceholderView title="Investments" />;
+const SavingsView: React.FC = () => <PlaceholderView title="Savings" />;
+const GoalsView: React.FC = () => <PlaceholderView title="Goals" />;
+const AssetsView: React.FC = () => <PlaceholderView title="Assets" />;
+const SubscriptionsView: React.FC = () => <PlaceholderView title="Subscriptions" />;
+const ReportsView: React.FC = () => <PlaceholderView title="Reports" />;
 
-    const handleUrlFetch = async () => {
-        if (!asset.productUrl) return;
-        setIsFetchingUrl(true);
+const ReceiptScanner: React.FC<{
+  onReceiptProcessed: (data: { merchantName: string, totalAmount: number, transactionDate: string }) => void;
+  isProcessing: boolean;
+  setIsProcessing: (isProcessing: boolean) => void;
+}> = ({ onReceiptProcessed, isProcessing, setIsProcessing }) => {
+
+    const handleFileSelect = async (base64: string, file: File) => {
+        setIsProcessing(true);
         try {
-            const details = await fetchProductDetailsFromUrl(asset.productUrl);
-            if (details) {
-                setAsset(prev => ({...prev, ...details}));
+            const result = await processReceiptImage(base64.split(',')[1], file.type);
+            if (result) {
+                onReceiptProcessed(result);
             } else {
-                alert("Could not fetch details from the URL.");
+                alert("Could not extract details from the receipt. Please enter them manually.");
             }
-        } catch (e) {
-            alert("An error occurred while fetching details.");
+        } catch (error) {
+            console.error(error);
+            alert("An error occurred while processing the receipt.");
+        } finally {
+            setIsProcessing(false);
         }
-        setIsFetchingUrl(false);
-    };
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setAsset(prev => ({...prev, [name]: name === 'purchasePrice' ? parseFloat(value) : value }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!asset.name || !asset.purchasePrice || !asset.purchaseDate || !asset.categoryId) {
-            return alert("Please fill all required fields.");
-        }
-        if (existingAsset) {
-            updateAsset(asset as Asset);
-        } else {
-            addAsset(asset as Omit<Asset, 'id'>);
-        }
-        onClose();
     };
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="flex gap-2 items-end">
-                <input type="url" name="productUrl" placeholder="Fetch from Product URL (optional)" value={asset.productUrl || ''} onChange={handleChange} className={inputClasses} />
-                <Button type="button" variant="secondary" onClick={handleUrlFetch} disabled={isFetchingUrl || !asset.productUrl}>
-                    {isFetchingUrl ? '...' : 'Fetch'}
-                </Button>
-            </div>
-            <input type="text" name="name" placeholder="Asset Name" value={asset.name || ''} onChange={handleChange} required className={inputClasses} />
-            <select name="categoryId" value={asset.categoryId} onChange={handleChange} required className={inputClasses}>
-                <option value="">Select Category</option>
-                {assetCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <input type="number" step="any" name="purchasePrice" placeholder="Purchase Price" value={asset.purchasePrice ?? ''} onChange={handleChange} required className={inputClasses} />
-            <div>
-                <label className="text-sm text-content-200">Purchase Date</label>
-                <CustomDatePicker value={asset.purchaseDate || ''} onChange={date => setAsset(p => ({...p, purchaseDate: date}))} />
-            </div>
-            <textarea name="description" placeholder="Description (optional)" value={asset.description || ''} onChange={handleChange} className={classNames(inputClasses, "h-20")} />
-            
-             <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button type="submit">{existingAsset ? 'Update' : 'Add'} Asset</Button>
-            </div>
-        </form>
-    );
-};
-
-const SubscriptionsView: React.FC = () => {
-    const { subscriptions, deleteSubscription, addSubscription, getCategoryById, transactions, categories, primaryCurrency } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingSub, setEditingSub] = useState<Subscription | undefined>(undefined);
-    const [isScanning, setIsScanning] = useState(false);
-    const [scannedSubs, setScannedSubs] = useState<Partial<Subscription>[]>([]);
-
-    const openModal = (sub?: Subscription) => {
-        setEditingSub(sub);
-        setIsModalOpen(true);
-    };
-    const closeModal = () => {
-        setEditingSub(undefined);
-        setIsModalOpen(false);
-    };
-    
-    const handleScan = async () => {
-        setIsScanning(true);
-        const results = await findSubscriptions(transactions, categories);
-        const newResults = results.filter(res => !subscriptions.some(s => s.name.toLowerCase() === res.name?.toLowerCase()));
-        setScannedSubs(newResults);
-        setIsScanning(false);
-    };
-
-    const handleAddScanned = (sub: Partial<Subscription>) => {
-        const subCategory = categories.find(c => c.name === (sub as any).categorySuggestion) || categories.find(c => c.name === 'Subscriptions');
-        if (!sub.name || !sub.amount || !sub.frequency || !sub.nextPaymentDate) return;
-        addSubscription({
-            name: sub.name,
-            amount: sub.amount,
-            frequency: sub.frequency,
-            nextPaymentDate: sub.nextPaymentDate,
-            categoryId: subCategory?.id || ''
-        });
-        setScannedSubs(prev => prev.filter(s => s.name !== sub.name));
-    };
-
-    const totalMonthlyCost = subscriptions.reduce((sum, s) => {
-        if(s.frequency === 'monthly') return sum + s.amount;
-        if(s.frequency === 'yearly') return sum + s.amount / 12;
-        if(s.frequency === 'weekly') return sum + s.amount * 4;
-        return sum;
-    }, 0);
-
-    return (
-        <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                <h2 className="text-3xl font-bold text-white self-start md:self-center">Subscriptions</h2>
-                <div className="flex gap-2 self-end md:self-center">
-                    <Button onClick={handleScan} variant="secondary" disabled={isScanning}>{isScanning ? 'Scanning...' : 'Scan from Transactions'}</Button>
-                    <Button onClick={() => openModal()}>{ICONS.plus} <span className="hidden sm:inline">Add Manually</span></Button>
-                </div>
-            </div>
-
-            <Card className="mb-6">
-                <h4 className="font-semibold text-content-200 text-sm">Estimated Monthly Cost</h4>
-                <p className="text-3xl font-bold text-white mt-1">{formatCurrency(totalMonthlyCost, primaryCurrency)}</p>
-            </Card>
-
-            {subscriptions.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {subscriptions.map((sub, index) => {
-                        const category = getCategoryById(sub.categoryId);
-                        return (
-                        <Card key={sub.id} className="p-4" animate style={{ animationDelay: `${index * 50}ms`}}>
-                             <div className="flex justify-between items-start">
-                                <div>
-                                    <h3 className="font-bold text-lg text-white">{sub.name}</h3>
-                                    <p className="text-sm text-content-200">{category?.name}</p>
-                                </div>
-                                <div className="flex gap-2">
-                                    <Button variant="secondary" className="p-2 h-8 w-8" onClick={() => openModal(sub)}>{ICONS.edit}</Button>
-                                    <Button variant="danger" className="p-2 h-8 w-8" onClick={() => window.confirm(`Delete ${sub.name}?`) && deleteSubscription(sub.id)}>{ICONS.trash}</Button>
-                                </div>
-                            </div>
-                            <p className="text-2xl font-bold my-3">{formatCurrency(sub.amount, primaryCurrency)} <span className="text-base font-normal text-content-200">/{sub.frequency}</span></p>
-                            <p className="text-xs text-content-200">Next payment: {formatDate(sub.nextPaymentDate)}</p>
-                        </Card>
-                    )})}
+        <div className="text-center">
+            {isProcessing ? (
+                <div className="flex flex-col items-center justify-center p-8 space-y-3">
+                    <div className="w-12 h-12 border-4 border-base-300 border-t-brand-primary rounded-full animate-spin"></div>
+                    <p className="text-content-100 font-semibold">Analyzing your receipt...</p>
+                    <p className="text-sm text-content-200">This may take a few moments.</p>
                 </div>
             ) : (
-                 <div className="text-center py-10"><p className="text-content-200">No subscriptions tracked. Try scanning from transactions.</p></div>
-            )}
-             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingSub ? 'Edit Subscription' : 'Add Subscription'}>
-                <SubscriptionForm onClose={closeModal} existingSub={editingSub}/>
-            </Modal>
-             <Modal isOpen={scannedSubs.length > 0} onClose={() => setScannedSubs([])} title="Found Potential Subscriptions">
-                <div className="space-y-3">
-                    {scannedSubs.map((sub, i) => (
-                        <div key={i} className="bg-base-100 p-3 rounded-lg flex justify-between items-center">
-                            <div>
-                                <p className="font-semibold text-white">{sub.name}</p>
-                                <p className="text-sm text-content-200">{formatCurrency(sub.amount || 0, primaryCurrency)} / {sub.frequency}</p>
-                            </div>
-                            <Button onClick={() => handleAddScanned(sub)}>Add</Button>
-                        </div>
-                    ))}
-                    {scannedSubs.length === 0 && !isScanning && <p className="text-content-200 text-center">No new subscriptions found.</p>}
-                </div>
-            </Modal>
-        </div>
-    );
-};
-
-const SubscriptionForm: React.FC<{onClose: () => void, existingSub?: Subscription}> = ({ onClose, existingSub }) => {
-    const { addSubscription, updateSubscription, categories } = useFinance();
-    const [sub, setSub] = useState<Partial<Subscription>>(
-        existingSub || { frequency: 'monthly', nextPaymentDate: formatInputDate() }
-    );
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent transition-colors";
-    const expenseCategories = useMemo(() => categories.filter(c => c.type === TransactionType.EXPENSE), [categories]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setSub(prev => ({...prev, [name]: name === 'amount' ? parseFloat(value) : value }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!sub.name || !sub.amount || !sub.frequency || !sub.nextPaymentDate || !sub.categoryId) return alert("Please fill all fields.");
-        if(existingSub) {
-            updateSubscription(sub as Subscription);
-        } else {
-            addSubscription(sub as Omit<Subscription, 'id'>);
-        }
-        onClose();
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="text" name="name" placeholder="Subscription Name (e.g. Netflix)" value={sub.name || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="amount" placeholder="Amount" value={sub.amount ?? ''} onChange={handleChange} required className={inputClasses} />
-            <select name="frequency" value={sub.frequency} onChange={handleChange} className={inputClasses}>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-            </select>
-            <select name="categoryId" value={sub.categoryId} onChange={handleChange} required className={inputClasses}>
-                <option value="">Select Category</option>
-                {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <div>
-                <label className="text-sm text-content-200">Next Payment Date</label>
-                <CustomDatePicker value={sub.nextPaymentDate || ''} onChange={date => setSub(p => ({...p, nextPaymentDate: date}))} />
-            </div>
-            <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button type="submit">{existingSub ? 'Update' : 'Add'} Subscription</Button>
-            </div>
-        </form>
-    )
-};
-
-const BudgetsView: React.FC = () => {
-  const { budgets, deleteBudget, getCategoryById, transactions, primaryCurrency } = useFinance();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingBudget, setEditingBudget] = useState<Budget | undefined>(undefined);
-
-  const openModal = (budget?: Budget) => {
-      setEditingBudget(budget);
-      setIsModalOpen(true);
-  };
-  const closeModal = () => {
-      setEditingBudget(undefined);
-      setIsModalOpen(false);
-  };
-  
-  const budgetStatus = useMemo(() => {
-    const monthlyExpenses = transactions
-      .filter(t => t.type === TransactionType.EXPENSE && new Date(t.date).getMonth() === new Date().getMonth())
-      .reduce((acc, t) => {
-        acc[t.categoryId] = (acc[t.categoryId] || 0) + t.amount;
-        return acc;
-      }, {} as { [key: string]: number });
-
-    return budgets.map(b => {
-      const category = getCategoryById(b.categoryId);
-      const spent = monthlyExpenses[b.categoryId] || 0;
-      const progress = b.amount > 0 ? Math.min((spent / b.amount) * 100, 100) : 0;
-      return { ...b, categoryName: category?.name || 'Unknown', icon: category?.icon || 'misc', spent, progress, remaining: b.amount - spent };
-    });
-  }, [transactions, budgets, getCategoryById]);
-
-  return (
-    <div className="animate-fade-in">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-            <h2 className="text-3xl font-bold text-white self-start md:self-center">Budgets</h2>
-            <Button onClick={() => openModal()} className="self-end md:self-center">
-                {ICONS.plus} <span className="hidden sm:inline">Add Budget</span>
-            </Button>
-        </div>
-        {budgetStatus.length > 0 ? (
-            <div className="space-y-4">
-                {budgetStatus.map((b, index) => (
-                    <Card key={b.id} animate style={{ animationDelay: `${index * 50}ms`}}>
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                            <div className="flex-grow">
-                                <div className="flex justify-between items-start">
-                                    <div className="flex items-center gap-3">
-                                        <span className="p-2 bg-base-100 rounded-full text-content-200">{ICONS[b.icon]}</span>
-                                        <div>
-                                            <h3 className="font-bold text-white">{b.categoryName}</h3>
-                                            <p className="text-sm text-content-200">Monthly Budget</p>
-                                        </div>
-                                    </div>
-                                     <div className="flex gap-2 sm:hidden">
-                                        <Button variant="secondary" className="p-2 h-8 w-8" onClick={() => openModal(b)}>{ICONS.edit}</Button>
-                                        <Button variant="danger" className="p-2 h-8 w-8" onClick={() => window.confirm(`Delete budget for ${b.categoryName}?`) && deleteBudget(b.id)}>{ICONS.trash}</Button>
-                                    </div>
-                                </div>
-                                <div className="mt-4">
-                                    <div className="w-full bg-base-300 rounded-full h-2.5">
-                                        <div className={classNames("h-2.5 rounded-full", b.progress > 85 ? 'bg-accent-error' : b.progress > 60 ? 'bg-accent-warning' : 'bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to')} style={{ width: `${b.progress}%` }}></div>
-                                    </div>
-                                    <div className="flex justify-between text-xs mt-1.5 text-content-200">
-                                        <span>Spent: {formatCurrency(b.spent, primaryCurrency)}</span>
-                                        <span>{b.remaining >= 0 ? `${formatCurrency(b.remaining, primaryCurrency)} left` : `${formatCurrency(Math.abs(b.remaining), primaryCurrency)} over`}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
-                                <span className="font-bold text-lg text-white">{formatCurrency(b.amount, primaryCurrency)}</span>
-                                <Button variant="secondary" className="p-2 h-8 w-8" onClick={() => openModal(b)}>{ICONS.edit}</Button>
-                                <Button variant="danger" className="p-2 h-8 w-8" onClick={() => window.confirm(`Delete budget for ${b.categoryName}?`) && deleteBudget(b.id)}>{ICONS.trash}</Button>
-                            </div>
-                        </div>
-                    </Card>
-                ))}
-            </div>
-        ) : (
-            <div className="text-center py-20"><p className="text-content-200">No budgets set for this month.</p></div>
-        )}
-        <Modal isOpen={isModalOpen} onClose={closeModal} title={editingBudget ? 'Edit Budget' : 'Add Budget'}>
-            <BudgetForm onClose={closeModal} existingBudget={editingBudget}/>
-        </Modal>
-    </div>
-  );
-};
-
-const BudgetForm: React.FC<{onClose: () => void, existingBudget?: Budget}> = ({ onClose, existingBudget }) => {
-    const { addBudget, updateBudget, categories, budgets } = useFinance();
-    const [budget, setBudget] = useState<Partial<Budget>>(existingBudget || {});
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent transition-colors";
-    
-    const availableCategories = useMemo(() => {
-        return categories.filter(c => c.type === TransactionType.EXPENSE && !budgets.some(b => b.categoryId === c.id && b.id !== existingBudget?.id));
-    }, [categories, budgets, existingBudget]);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!budget.categoryId || !budget.amount) return alert("Please fill all fields.");
-        if(existingBudget) {
-            updateBudget({ ...budget, id: existingBudget.id, period: 'monthly' } as Budget);
-        } else {
-            addBudget({ ...budget, period: 'monthly' } as Omit<Budget, 'id'>);
-        }
-        onClose();
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <select name="categoryId" value={budget.categoryId || ''} onChange={e => setBudget(p => ({...p, categoryId: e.target.value}))} required className={inputClasses}>
-                <option value="">Select Category</option>
-                {existingBudget && <option value={existingBudget.categoryId}> {categories.find(c=>c.id === existingBudget.categoryId)?.name} </option>}
-                {availableCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-             <input type="number" step="any" name="amount" placeholder="Budget Amount" value={budget.amount ?? ''} onChange={e => setBudget(p => ({...p, amount: parseFloat(e.target.value)}))} required className={inputClasses} />
-             <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button type="submit">{existingBudget ? 'Update' : 'Add'} Budget</Button>
-            </div>
-        </form>
-    );
-};
-
-const GoalsView: React.FC = () => {
-    const { goals, deleteGoal, primaryCurrency, makeGoalContribution, accounts } = useFinance();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingGoal, setEditingGoal] = useState<Goal | undefined>(undefined);
-    const [contributingGoal, setContributingGoal] = useState<Goal | undefined>(undefined);
-
-    const openModal = (goal?: Goal) => {
-        setEditingGoal(goal);
-        setIsModalOpen(true);
-    };
-    const closeModal = () => {
-        setEditingGoal(undefined);
-        setIsModalOpen(false);
-    };
-
-    const handleContribution = (amount: number, fromAccountId: string) => {
-        if (!contributingGoal) return;
-        makeGoalContribution(contributingGoal.id, amount, fromAccountId);
-        setContributingGoal(undefined);
-    };
-
-    return (
-        <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                <h2 className="text-3xl font-bold text-white self-start md:self-center">Financial Goals</h2>
-                <Button onClick={() => openModal()} className="self-end md:self-center">
-                    {ICONS.plus} <span className="hidden sm:inline">Add Goal</span>
-                </Button>
-            </div>
-            {goals.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {goals.map((goal, index) => {
-                        const progress = goal.targetAmount > 0 ? (goal.currentAmount / goal.targetAmount) * 100 : 0;
-                        return (
-                            <Card key={goal.id} animate style={{ animationDelay: `${index * 50}ms`}}>
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <h3 className="font-bold text-lg text-white">{goal.name}</h3>
-                                        <p className="text-sm text-content-200">Target: {formatDate(goal.targetDate)}</p>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Button variant="secondary" className="p-2 h-8 w-8" onClick={() => openModal(goal)}>{ICONS.edit}</Button>
-                                        <Button variant="danger" className="p-2 h-8 w-8" onClick={() => window.confirm(`Delete goal: ${goal.name}?`) && deleteGoal(goal.id)}>{ICONS.trash}</Button>
-                                    </div>
-                                </div>
-                                <div className="my-4">
-                                    <div className="w-full bg-base-300 rounded-full h-2.5">
-                                        <div className="bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to h-2.5 rounded-full" style={{ width: `${progress}%` }}></div>
-                                    </div>
-                                    <div className="flex justify-between text-xs mt-1.5 text-content-200">
-                                        <span>{formatCurrency(goal.currentAmount, primaryCurrency)}</span>
-                                        <span>{formatCurrency(goal.targetAmount, primaryCurrency)}</span>
-                                    </div>
-                                </div>
-                                <Button className="w-full" onClick={() => setContributingGoal(goal)}>Contribute</Button>
-                            </Card>
-                        )
-                    })}
-                </div>
-            ) : (
-                 <div className="text-center py-20"><p className="text-content-200">Set your first financial goal to get started.</p></div>
-            )}
-            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingGoal ? 'Edit Goal' : 'Add Goal'}>
-                <GoalForm onClose={closeModal} existingGoal={editingGoal}/>
-            </Modal>
-            <Modal isOpen={!!contributingGoal} onClose={() => setContributingGoal(undefined)} title={`Contribute to ${contributingGoal?.name}`}>
-                 <GoalContributionForm onContribute={handleContribution} accounts={accounts} />
-            </Modal>
-        </div>
-    );
-};
-
-const GoalForm: React.FC<{onClose: () => void, existingGoal?: Goal}> = ({ onClose, existingGoal }) => {
-    const { addGoal, updateGoal } = useFinance();
-    const [goal, setGoal] = useState<Partial<Goal>>(
-        existingGoal || { targetDate: formatInputDate() }
-    );
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent transition-colors";
-    
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setGoal(p => ({...p, [name]: name === 'targetAmount' ? parseFloat(value) : value }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!goal.name || !goal.targetAmount || !goal.targetDate) return alert("Please fill all fields.");
-        if(existingGoal) {
-            updateGoal({ ...existingGoal, ...goal } as Goal);
-        } else {
-            addGoal(goal as Omit<Goal, 'id' | 'currentAmount'>);
-        }
-        onClose();
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="text" name="name" placeholder="Goal Name (e.g. New Car)" value={goal.name || ''} onChange={handleChange} required className={inputClasses} />
-            <input type="number" step="any" name="targetAmount" placeholder="Target Amount" value={goal.targetAmount ?? ''} onChange={handleChange} required className={inputClasses} />
-            {existingGoal && <input type="number" step="any" name="currentAmount" placeholder="Current Amount" value={goal.currentAmount ?? ''} onChange={handleChange} required className={inputClasses} />}
-            <div>
-                <label className="text-sm text-content-200">Target Date</label>
-                <CustomDatePicker value={goal.targetDate || ''} onChange={date => setGoal(p => ({...p, targetDate: date}))} />
-            </div>
-             <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button type="submit">{existingGoal ? 'Update' : 'Add'} Goal</Button>
-            </div>
-        </form>
-    );
-};
-
-const GoalContributionForm: React.FC<{onContribute: (amount: number, fromAccountId: string) => void, accounts: Account[]}> = ({ onContribute, accounts }) => {
-    const [amount, setAmount] = useState<number | undefined>();
-    const [fromAccountId, setFromAccountId] = useState('');
-    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent transition-colors";
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!amount || !fromAccountId) return alert("Please fill all fields.");
-        onContribute(amount, fromAccountId);
-    };
-    
-    return (
-         <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="number" step="any" placeholder="Amount to Contribute" value={amount ?? ''} onChange={e => setAmount(parseFloat(e.target.value))} required className={inputClasses} />
-            <select value={fromAccountId} onChange={e => setFromAccountId(e.target.value)} required className={inputClasses}>
-                <option value="">From Account</option>
-                {accounts.filter(a => a.type !== AccountType.LOAN).map(a => <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.balance, a.currency)})</option>)}
-            </select>
-            <div className="flex justify-end pt-4">
-                <Button type="submit">Contribute</Button>
-            </div>
-         </form>
-    );
-};
-
-const ReportsView: React.FC = () => {
-    const { transactions, categories } = useFinance();
-    const [report, setReport] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const [startDate, setStartDate] = useState(formatInputDate(firstDayOfMonth));
-    const [endDate, setEndDate] = useState(formatInputDate(today));
-
-    const handleGenerateReport = async () => {
-        setIsLoading(true);
-        setReport('');
-        const filteredTransactions = transactions.filter(t => {
-            const date = new Date(t.date);
-            return date >= new Date(startDate) && date <= new Date(endDate + 'T23:59:59');
-        });
-        const result = await generateFinancialReport(filteredTransactions, categories, startDate, endDate);
-        setReport(result);
-        setIsLoading(false);
-    };
-
-    return (
-         <div className="animate-fade-in">
-            <h2 className="text-3xl font-bold text-white mb-6">Reports</h2>
-            <Card className="mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                     <div className="w-full">
-                        <label className="block text-sm text-content-200 mb-1">Start Date</label>
-                        <CustomDatePicker value={startDate} onChange={setStartDate} />
+                <div className="space-y-4">
+                    <p className="text-content-200">
+                        Use your camera to scan a receipt or upload an image from your device.
+                    </p>
+                    <div className="flex justify-center gap-4 pt-2">
+                        <FileInputButton onFileSelect={handleFileSelect} capture="environment">
+                            {ICONS.camera} Take Photo
+                        </FileInputButton>
+                        <FileInputButton onFileSelect={handleFileSelect}>
+                            {ICONS.upload} Upload File
+                        </FileInputButton>
                     </div>
-                    <div className="w-full">
-                        <label className="block text-sm text-content-200 mb-1">End Date</label>
-                        <CustomDatePicker value={endDate} onChange={setEndDate} />
-                    </div>
-                    <Button onClick={handleGenerateReport} disabled={isLoading} className="w-full">
-                        {isLoading ? 'Generating...' : 'Generate Report'}
-                    </Button>
                 </div>
-            </Card>
-
-            {isLoading && (
-                <Card>
-                    <div className="space-y-4 p-4">
-                        <SkeletonLoader className="h-8 w-1/3" />
-                        <SkeletonLoader className="h-4 w-full" />
-                        <SkeletonLoader className="h-4 w-3/4" />
-                        <SkeletonLoader className="h-8 w-1/4 mt-4" />
-                        <SkeletonLoader className="h-4 w-full" />
-                        <SkeletonLoader className="h-4 w-5/6" />
-                    </div>
-                </Card>
-            )}
-
-            {report && !isLoading && (
-                <Card>
-                    <MarkdownRenderer content={report} />
-                </Card>
             )}
         </div>
     );
 };
 
-const InsightsView: React.FC = () => {
-    const { transactions, accounts, categories } = useFinance();
-    const [insights, setInsights] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
 
-    const handleGenerateInsights = async () => {
-        setIsLoading(true);
-        setInsights('');
-        const result = await getFinancialInsights(transactions, accounts, categories);
-        setInsights(result);
-        setIsLoading(false);
-    };
-
-    return (
-        <div className="animate-fade-in">
-            <h2 className="text-3xl font-bold text-white mb-6">AI Insights</h2>
-            <Card>
-                <div className="flex flex-col items-center text-center p-4">
-                    <p className="text-content-200 mb-4">Get personalized insights and tips based on your recent financial activity.</p>
-                    <Button onClick={handleGenerateInsights} disabled={isLoading}>
-                        {isLoading ? 'Analyzing...' : 'Generate My Insights'}
-                    </Button>
-                </div>
-
-                {isLoading && (
-                    <div className="mt-6 space-y-4">
-                        <SkeletonLoader className="h-8 w-1/3" />
-                        <SkeletonLoader className="h-4 w-full" />
-                        <SkeletonLoader className="h-4 w-3/4" />
-                        <SkeletonLoader className="h-8 w-1/4 mt-4" />
-                        <SkeletonLoader className="h-4 w-full" />
-                        <SkeletonLoader className="h-4 w-5/6" />
-                    </div>
-                )}
-                {insights && !isLoading && (
-                    <div className="mt-6 border-t border-base-300 pt-6">
-                        <MarkdownRenderer content={insights} />
-                    </div>
-                )}
-            </Card>
-        </div>
-    );
-};
-
-const SettingsView: React.FC = () => {
-    const { primaryCurrency, setPrimaryCurrency, bottomNavViews, setBottomNavViews, dashboardCards, setDashboardCards } = useFinance();
-    
-    const handleBottomNavChange = (view: View, checked: boolean) => {
-        setBottomNavViews(prev => {
-            const newNav = checked ? [...prev, view] : prev.filter(v => v !== view);
-            if (newNav.length > 5) return prev; // Limit to 5
-            return newNav;
-        });
-    };
-    
-    return (
-         <div className="animate-fade-in space-y-6">
-            <h2 className="text-3xl font-bold text-white">Settings</h2>
-            <Card>
-                <h3 className="font-bold text-lg text-white mb-3">General</h3>
-                <div className="space-y-2">
-                    <label htmlFor="primaryCurrency" className="text-content-200">Primary Currency</label>
-                    <select id="primaryCurrency" value={primaryCurrency} onChange={(e) => setPrimaryCurrency(e.target.value)} className="w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to">
-                        {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.symbol})</option>)}
-                    </select>
-                </div>
-            </Card>
-            <Card>
-                <h3 className="font-bold text-lg text-white mb-3">Dashboard Customization</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {dashboardCardDefs.map(card => (
-                        <label key={card.key} className="flex items-center gap-3 bg-base-100 p-3 rounded-lg">
-                            <input type="checkbox" checked={dashboardCards?.[card.key] ?? false} onChange={(e) => setDashboardCards(p => ({...p, [card.key]: e.target.checked}))} className="h-4 w-4 rounded bg-base-300 text-brand-primary focus:ring-brand-primary" />
-                            <span>{card.label}</span>
-                        </label>
-                    ))}
-                </div>
-            </Card>
-            <Card>
-                <h3 className="font-bold text-lg text-white mb-3">Bottom Navigation</h3>
-                <p className="text-sm text-content-200 mb-4">Select up to 5 views for quick access on mobile.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {allNavItems.map(item => (
-                         <label key={item.view} className="flex items-center gap-3 bg-base-100 p-3 rounded-lg">
-                            <input type="checkbox" checked={bottomNavViews.includes(item.view)} onChange={(e) => handleBottomNavChange(item.view, e.target.checked)} className="h-4 w-4 rounded bg-base-300 text-brand-primary focus:ring-brand-primary" />
-                             <span className="flex items-center gap-2">{item.icon} {item.label}</span>
-                        </label>
-                    ))}
-                </div>
-            </Card>
-         </div>
-    );
-};
-
-const App: React.FC = () => {
+function App() {
   const { bottomNavViews } = useFinance();
-  const [currentView, setCurrentView] = useState<View>('DASHBOARD');
+  const [activeView, setActiveView] = useState<View>(bottomNavViews[0] || 'DASHBOARD');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [prefilledTransaction, setPrefilledTransaction] = useState<Partial<Transaction> | undefined>();
+  const [isProcessingReceipt, setIsProcessingReceipt] = useState(false);
 
-  // Modal states
-  const [isAddEditTransactionModalOpen, setAddEditTransactionModalOpen] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | undefined>(undefined);
-  const [prefilledData, setPrefilledData] = useState<Partial<Transaction> | undefined>(undefined);
-  const [isReceiptScannerModalOpen, setReceiptScannerModalOpen] = useState(false);
-
-  const openAddEditModal = (transaction?: Transaction, prefill?: Partial<Transaction>) => {
-    closeSidebar();
-    setEditingTransaction(transaction);
-    setPrefilledData(prefill);
-    setAddEditTransactionModalOpen(true);
+  const openTransactionModal = (data?: Partial<Transaction>) => {
+    setPrefilledTransaction(data);
+    setIsModalOpen(true);
   };
 
-  const closeAddEditModal = () => {
-    setEditingTransaction(undefined);
-    setPrefilledData(undefined);
-    setAddEditTransactionModalOpen(false);
-  };
-
-  const openReceiptScanner = () => {
-    closeSidebar();
-    setReceiptScannerModalOpen(true);
+  const closeTransactionModal = () => {
+    setPrefilledTransaction(undefined);
+    setIsModalOpen(false);
   };
   
-  const closeReceiptScanner = () => {
-    setReceiptScannerModalOpen(false);
-  }
-
-  const handleScanComplete = (data: Partial<Transaction>) => {
-    closeReceiptScanner();
-    openAddEditModal(undefined, data);
+  const handleScanReceipt = () => {
+    setIsScanModalOpen(true);
   };
-
-  const closeSidebar = () => setIsSidebarOpen(false);
+  
+  const handleReceiptProcessed = (data: { merchantName: string, totalAmount: number, transactionDate: string }) => {
+    setIsScanModalOpen(false);
+    openTransactionModal({
+        description: data.merchantName,
+        amount: data.totalAmount,
+        date: data.transactionDate,
+        type: TransactionType.EXPENSE,
+    });
+  };
 
   const renderView = () => {
-    switch (currentView) {
+    switch (activeView) {
       case 'DASHBOARD': return <DashboardView />;
       case 'ACCOUNTS': return <AccountsView />;
-      case 'TRANSACTIONS': return <TransactionsView openAddEditModal={openAddEditModal} />;
-      case 'INVESTMENTS': return <InvestmentsView />;
-      case 'SAVINGS': return <SavingsView />;
-      case 'ASSETS': return <AssetsView />;
-      case 'SUBSCRIPTIONS': return <SubscriptionsView />;
+      case 'TRANSACTIONS': return <TransactionsView openTransactionModal={openTransactionModal} />;
       case 'BUDGETS': return <BudgetsView />;
-      case 'GOALS': return <GoalsView />;
-      case 'REPORTS': return <ReportsView />;
       case 'INSIGHTS': return <InsightsView />;
       case 'SETTINGS': return <SettingsView />;
+      case 'INVESTMENTS': return <InvestmentsView />;
+      case 'SAVINGS': return <SavingsView />;
+      case 'GOALS': return <GoalsView />;
+      case 'ASSETS': return <AssetsView />;
+      case 'SUBSCRIPTIONS': return <SubscriptionsView />;
+      case 'REPORTS': return <ReportsView />;
       default: return <DashboardView />;
     }
   };
-
-  const NavItem: React.FC<{ item: NavItemDef; isBottomNav?: boolean }> = ({ item, isBottomNav }) => (
-    <button
-      onClick={() => { setCurrentView(item.view); closeSidebar(); }}
-      className={classNames(
-        "flex items-center gap-4 w-full text-left transition-colors duration-200 rounded-lg",
-        isBottomNav ? "flex-col justify-center text-xs p-1 h-full" : "p-3 text-base",
-        currentView === item.view
-          ? (isBottomNav ? "text-brand-primary" : "bg-base-300 text-white font-semibold")
-          : "text-content-200 hover:bg-base-200 hover:text-white"
-      )}
-    >
-      <span className={isBottomNav ? "" : "w-6 h-6"}>{item.icon}</span>
-      <span>{item.label}</span>
-    </button>
-  );
-
-  const sidebarContent = (
-    <div className="p-4 space-y-4 h-full flex flex-col">
-      <div className="flex items-center gap-2 px-2 flex-shrink-0">
-          {ICONS.logo}
-          <h1 className="text-2xl font-bold text-white">FinanSage</h1>
-      </div>
-      <nav className="mt-8 space-y-1 flex-grow overflow-y-auto">
-          {mainNavItems.map(item => <NavItem key={item.view} item={item} />)}
-          <hr className="border-base-300 my-4" />
-          <h3 className="px-3 text-xs font-semibold text-content-200 uppercase tracking-wider mb-2">More</h3>
-          {moreNavItems.map(item => <NavItem key={item.view} item={item} />)}
-      </nav>
-      <div className="flex-shrink-0">
-        <hr className="border-base-300 my-2" />
-        <NavItem item={{ view: 'SETTINGS', label: 'Settings', icon: ICONS.settings }} />
-      </div>
+  
+  const currentNavItem = allNavItems.find(item => item.view === activeView);
+  
+  const MoreMenu: React.FC<{onClose: () => void}> = ({onClose}) => (
+    <div className="absolute bottom-full mb-2 right-0 bg-base-200/90 backdrop-blur-md rounded-xl shadow-lg border border-base-300 w-56 overflow-hidden animate-slide-up-fast">
+      {moreNavItems.map(item => (
+        <button key={item.view} onClick={() => { setActiveView(item.view); onClose(); }} className="flex items-center gap-4 w-full text-left px-4 py-3 text-white hover:bg-base-300 transition-colors">
+          <span className="text-brand-primary">{item.icon}</span>
+          <span>{item.label}</span>
+        </button>
+      ))}
     </div>
   );
+
+  const BottomNavBar: React.FC = () => {
+    const { bottomNavViews } = useFinance();
+    const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+    const mainViewsToShow = allNavItems.filter(navItem => bottomNavViews.includes(navItem.view));
+    const navItems = mainViewsToShow.length >= 4 ? mainViewsToShow.slice(0, 4) : mainNavItems.slice(0, 4);
+    
+    return (
+        <nav className="fixed bottom-0 left-0 right-0 bg-base-200/80 backdrop-blur-lg border-t border-base-300 md:hidden z-30">
+            <div className="flex justify-around items-center h-20">
+                {navItems.map(item => (
+                    <button key={item.view} onClick={() => setActiveView(item.view)} className={classNames("flex flex-col items-center justify-center gap-1 transition-colors w-full h-full", activeView === item.view ? 'text-brand-primary' : 'text-content-200 hover:text-white')}>
+                        {item.icon}
+                        <span className="text-xs">{item.label}</span>
+                    </button>
+                ))}
+                 <div className="relative">
+                    <button onClick={() => setIsMoreMenuOpen(p => !p)} className={classNames("flex flex-col items-center justify-center gap-1 transition-colors w-full h-full px-4", moreNavItems.some(i => i.view === activeView) ? 'text-brand-primary' : 'text-content-200 hover:text-white')}>
+                        {ICONS['dots-horizontal'] || <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>}
+                        <span className="text-xs">More</span>
+                    </button>
+                    {isMoreMenuOpen && <MoreMenu onClose={() => setIsMoreMenuOpen(false)}/>}
+                </div>
+            </div>
+        </nav>
+    );
+  };
+  
+  const Sidebar: React.FC<{ isOpen: boolean, onClose: () => void }> = ({ isOpen, onClose }) => {
+    const sidebarRef = useRef<HTMLDivElement>(null);
+    
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+                onClose();
+            }
+        };
+
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        } else {
+            document.removeEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isOpen, onClose]);
+
+    const allItems = [...mainNavItems, ...moreNavItems, { view: 'SETTINGS' as View, label: 'Settings', icon: ICONS.settings }];
+
+    return (
+        <>
+            <div className={classNames("fixed inset-0 bg-black/60 z-40 md:hidden transition-opacity", isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none')} onClick={onClose}></div>
+            <div ref={sidebarRef} className={classNames("fixed top-0 left-0 h-full bg-base-200 border-r border-base-300 w-64 p-5 z-50 transform transition-transform duration-300 ease-in-out md:translate-x-0", isOpen ? 'translate-x-0' : '-translate-x-full')}>
+                 <div className="flex items-center gap-2 mb-8">
+                     {ICONS.logo}
+                     <h1 className="text-2xl font-bold bg-brand-gradient text-transparent bg-clip-text">FinanSage</h1>
+                 </div>
+                 <nav className="space-y-2">
+                    {allItems.map(item => (
+                        <button key={item.view} onClick={() => { setActiveView(item.view); onClose(); }} className={classNames(
+                            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-lg",
+                            activeView === item.view ? 'bg-base-300 text-white font-semibold' : 'text-content-200 hover:bg-base-300/50'
+                        )}>
+                            {item.icon} {item.label}
+                        </button>
+                    ))}
+                 </nav>
+            </div>
+        </>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-base-100 text-content-100 font-sans flex">
-      {/* Sidebar for desktop */}
-      <aside className="hidden md:block w-64 bg-base-100/70 backdrop-blur-xl border-r border-base-300 flex-shrink-0">
-          {sidebarContent}
-      </aside>
-
-      {/* Mobile sidebar (off-canvas) */}
-      <div className={classNames(
-          "fixed inset-0 z-50 md:hidden transition-transform duration-300",
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      )}>
-        <div className="absolute inset-0 bg-black/60" onClick={closeSidebar}></div>
-        <aside className="relative w-64 bg-base-200 h-full">{sidebarContent}</aside>
-      </div>
-
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto h-screen pb-24 md:pb-8">
-        {/* Mobile Header */}
-        <header className="md:hidden flex justify-between items-center mb-6">
-            <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-white">
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-            </button>
-            <div className="flex items-center gap-2">
-                {ICONS.logo}
-                <h1 className="text-xl font-bold text-white">FinanSage</h1>
+    <div className="min-h-screen bg-base-100 text-content-100 font-sans">
+        <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+        <main className="md:ml-64 pb-24 md:pb-8">
+            <header className="sticky top-0 bg-base-100/80 backdrop-blur-lg z-30 border-b border-base-300 flex items-center justify-between h-[65px] md:h-[73px]">
+                <div className="flex items-center gap-3 md:hidden p-4">
+                    <button onClick={() => setIsSidebarOpen(true)} className="text-white p-2">
+                       {ICONS['menu']}
+                    </button>
+                     <div className="flex items-center gap-2">
+                         {ICONS.logo}
+                         <h1 className="text-xl font-bold bg-brand-gradient text-transparent bg-clip-text">FinanSage</h1>
+                     </div>
+                </div>
+                <div className="hidden md:flex flex-col w-full px-6">
+                    <h2 className="text-xl font-bold text-white">{currentNavItem?.label || 'Dashboard'}</h2>
+                    <p className="text-sm text-content-200">Welcome back!</p>
+                </div>
+            </header>
+            <div className="p-4 md:p-6">
+                {renderView()}
             </div>
-            <div className="w-8"></div>
-        </header>
-
-        {renderView()}
-      </main>
-
-      <FloatingActionButton 
-        onAddManually={() => openAddEditModal()}
-        onScanReceipt={openReceiptScanner}
-      />
-
-      {/* Bottom Navigation for mobile */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-base-200/80 backdrop-blur-lg border-t border-base-300 grid grid-cols-4 gap-1 h-20">
-        {bottomNavViews.slice(0, 4).map(view => {
-          const navItem = allNavItems.find(item => item.view === view);
-          return navItem ? <NavItem key={view} item={navItem} isBottomNav /> : null;
-        })}
-      </nav>
-      
-      {/* Modals */}
-      <Modal 
-        isOpen={isAddEditTransactionModalOpen} 
-        onClose={closeAddEditModal}
-        title={editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
-      >
-        <TransactionForm 
-          onClose={closeAddEditModal} 
-          existingTransaction={editingTransaction} 
-          prefilledData={prefilledData} 
+        </main>
+        <BottomNavBar />
+        <FloatingActionButton 
+            onAddManually={() => openTransactionModal()} 
+            onScanReceipt={handleScanReceipt}
         />
-      </Modal>
-
-      <BottomSheet
-        isOpen={isReceiptScannerModalOpen}
-        onClose={closeReceiptScanner}
-        title="Scan Receipt"
-      >
-        <ReceiptScannerModal onScanComplete={handleScanComplete} />
-      </BottomSheet>
+        <Modal isOpen={isModalOpen} onClose={closeTransactionModal} title={prefilledTransaction?.id ? 'Edit Transaction' : 'Add Transaction'}>
+            <TransactionForm onClose={closeTransactionModal} existingTransaction={prefilledTransaction as Transaction} prefilledData={prefilledTransaction}/>
+        </Modal>
+        <Modal isOpen={isScanModalOpen} onClose={() => setIsScanModalOpen(false)} title="Scan Receipt">
+             <ReceiptScanner onReceiptProcessed={handleReceiptProcessed} isProcessing={isProcessingReceipt} setIsProcessing={setIsProcessingReceipt} />
+        </Modal>
     </div>
   );
-};
+}
 
 export default App;
