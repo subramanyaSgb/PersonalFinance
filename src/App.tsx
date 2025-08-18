@@ -1,9 +1,9 @@
 
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
-import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, SavingsInstrument, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard, InvestmentType, SavingsType } from './types';
-import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, NavItemDef, dashboardCardDefs } from './constants';
-import { suggestCategory, processReceiptImage, getFinancialInsights, generateFinancialReport, findSubscriptions, fetchProductDetailsFromUrl, analyzePortfolio } from './services/geminiService';
+import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, SavingsInstrument, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard } from './types';
+import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems } from './constants';
+import { suggestCategory, processReceiptImage } from './services/geminiService';
 
 // UTILITY FUNCTIONS
 const classNames = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -449,28 +449,6 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
   );
 };
 
-const BottomSheet: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end animate-fade-in md:hidden" onClick={onClose}>
-      <div 
-        className="bg-base-200 w-full rounded-t-2xl shadow-2xl animate-slide-up-sheet" 
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="w-full flex justify-center pt-3 pb-2">
-          <div className="w-12 h-1.5 bg-base-300 rounded-full"></div>
-        </div>
-        <div className="flex justify-between items-center px-4 pb-2 border-b border-base-300">
-          <h3 className="text-xl font-bold text-white">{title}</h3>
-          <button onClick={onClose} className="text-content-200 hover:text-white text-3xl leading-none w-8 h-8 flex items-center justify-center">&times;</button>
-        </div>
-        <div className="p-4 max-h-[60vh] overflow-y-auto">{children}</div>
-      </div>
-    </div>
-  );
-};
-
 const SkeletonLoader: React.FC<{ className?: string }> = ({ className }) => {
     return <div className={classNames('animate-skeleton-loading rounded-md', className)} />;
 };
@@ -708,32 +686,6 @@ const FloatingActionButton: React.FC<{
       </button>
     </div>
   );
-};
-
-const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
-    const renderSegment = (segment: string, key: number) => {
-        if (segment.startsWith('**') && segment.endsWith('**')) {
-            return <strong key={key}>{segment.slice(2, -2)}</strong>;
-        }
-        return <span key={key}>{segment}</span>;
-    };
-
-    const renderLine = (line: string, index: number) => {
-        if (line.startsWith('## ')) return <h3 key={index} className="text-xl font-bold mt-4 mb-2">{line.substring(3)}</h3>;
-        if (line.startsWith('### ')) return <h4 key={index} className="text-lg font-semibold mt-3 mb-1">{line.substring(4)}</h4>;
-        if (line.startsWith('* ')) return <li key={index} className="ml-5 list-disc">{line.substring(2)}</li>;
-        if (line.trim() === '') return <br key={index} />;
-        
-        const segments = line.split(/(\*\*.*?\*\*)/g).filter(Boolean);
-
-        return <p key={index}>{segments.map((segment, i) => renderSegment(segment, i))}</p>;
-    };
-
-    return (
-        <div className="prose prose-invert max-w-none text-content-100 space-y-2">
-            {content.split('\n').map((line, i) => renderLine(line, i))}
-        </div>
-    );
 };
 
 // VIEW COMPONENTS
