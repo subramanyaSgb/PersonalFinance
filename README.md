@@ -1,4 +1,3 @@
-
 # FinanSage - Your AI-Powered Personal Finance Hub
 
 <div align="center">
@@ -19,43 +18,46 @@
 
 ---
 
-FinanSage is not just another expense tracker. It's a comprehensive financial companion built with a modern tech stack. It leverages the power of the Google Gemini API to provide intelligent features that go beyond simple data entry, helping you understand your spending, find savings opportunities, and stay on track with your financial goals. All your data is securely stored in your browser's local storage, ensuring complete privacy.
+FinanSage is not just another expense tracker. It's a comprehensive financial companion built with a modern tech stack. It leverages the power of the Google Gemini API to provide intelligent features that go beyond simple data entry, helping you understand your spending, find savings opportunities, and stay on track with your financial goals. All your data is securely stored in your browser's local storage, ensuring complete privacy and offline accessibility.
 
 ## ✨ Key Features
 
 FinanSage is packed with features designed to cover all aspects of personal finance management.
 
 ### 📊 Core Financial Tracking
-- **Interactive Dashboard:** Get a bird's-eye view of your total net worth, monthly income vs. expenses, top spending categories, and recent transactions.
-- **Multi-Account Management:** Track all your accounts in one place, including Checking, Savings, Credit Cards, Loans, and Cash.
-- **Comprehensive Transaction Logging:** Easily add expenses, income, and transfers with detailed information like categories, notes, tags, and receipt images.
-- **Budget Management:** Set monthly budgets for different spending categories and visually track your progress to avoid overspending.
-- **Financial Goal Setting:** Create, track, and contribute to your financial goals, whether it's for a new car, a vacation, or a down payment.
+- **Customizable Dashboard:** Get a bird's-eye view of your total net worth, monthly income vs. expenses, spending breakdowns, recent transactions, and budget statuses. Arrange the dashboard to see what matters most to you.
+- **Multi-Account Management:** Track all your accounts in one place—Checking, Savings, Credit Cards, Investments, Loans, and Cash—with support for multiple currencies.
+- **Comprehensive Transaction Logging:** Easily add expenses, income, and transfers. Enrich entries with categories, notes, tags, and even receipt images.
+- **Advanced Filtering & Export:** Quickly search and filter transactions by any criteria, and export your data to CSV for record-keeping or further analysis.
+- **Budget Management:** Set monthly budgets for different spending categories and visually track your progress with intuitive progress bars to prevent overspending.
+- **Financial Goal Setting:** Create, track, and contribute to your financial goals, whether it's for a new car, a vacation, or a down payment on a house.
 
 ### 🤖 AI-Powered Intelligence (via Google Gemini)
 - **AI Financial Insights:** Receive personalized analysis of your spending habits, potential savings, and actionable tips to improve your financial health.
-- **AI Category Suggestion:** Automatically suggest a transaction category based on its description, speeding up manual entry.
-- **📸 Receipt Scanning:** Simply take a photo of a receipt, and the AI will automatically extract the merchant name, total amount, and date.
+- **AI-Generated Reports:** Generate detailed, well-structured financial reports for any date range with an executive summary, income/expense analysis, and data-driven recommendations.
+- **AI Portfolio Analysis:** Get a concise, expert-level analysis of your investment portfolio's diversification, concentration, and potential risks.
+- **📸 Receipt Scanning:** Simply take a photo of a receipt, and the AI will automatically extract the merchant name, total amount, and date, pre-filling a new transaction for you.
 - **Subscription Scanner:** Let the AI analyze your transaction history to find recurring payments and potential subscriptions you might be overlooking.
-- **Asset Detail Fetcher:** Paste a product URL, and the AI will automatically fetch its name, price, and image to add to your asset list.
+- **Smart Category Suggestion:** Automatically suggests a transaction category based on its description, speeding up manual entry.
+- **Asset Detail Fetcher:** Paste a product URL, and the AI will automatically fetch its name, price, and image to add to your asset catalog.
 
 ### 📈 Investment & Asset Portfolio
-- **Investment Tracking:** Monitor the performance of your stocks and mutual funds, tracking purchase price, current value, and overall profit/loss.
-- **Savings Instruments:** Keep track of your Fixed Deposits (FDs) and Recurring Deposits (RDs) with automated maturity value calculations.
+- **Investment Tracking:** Monitor the performance of your stocks and mutual funds. Track individual purchases, average buy price, current value, and overall profit/loss.
+- **Savings Instruments:** Keep track of your Fixed Deposits (FDs) and Recurring Deposits (RDs), including interest rates and maturity dates.
 - **Valuable Asset Management:** Catalog your physical assets like electronics, furniture, and vehicles to get a complete picture of your net worth.
 
 ### ⚙️ User Experience & Utilities
-- **Mobile-First Responsive Design:** A seamless experience whether you're on a desktop or a mobile phone.
-- **Offline First:** All data is stored locally, making the app fast and accessible even without an internet connection.
-- **Dark Mode UI:** A sleek, modern interface that's easy on the eyes.
-- **Data Export:** Export your filtered transaction data to a CSV file for your own records or for use in other software.
-- **Customizable Categories:** Add, edit, or delete expense and income categories with custom icons to fit your lifestyle.
+- **Mobile-First Responsive Design:** A seamless experience whether you're on a desktop, tablet, or mobile phone.
+- **Offline First & Private:** All data is stored locally in your browser, making the app fast, accessible without an internet connection, and completely private.
+- **Sleek Dark Mode UI:** A modern interface that's easy on the eyes.
+- **Customizable Navigation:** Tailor the mobile bottom navigation bar to include the features you use most.
 - **Global Currency Support:** Manage accounts in different currencies, with a primary currency for aggregated dashboard views.
 
 ## 🛠️ Technology Stack
 
 - **Frontend:** [React](https://react.dev/) (with Hooks & Context API), [TypeScript](https://www.typescriptlang.org/), [Tailwind CSS](https://tailwindcss.com/)
 - **AI/ML:** [Google Gemini API](https://ai.google.dev/) (`@google/genai`)
+- **Charting:** [Recharts](https://recharts.org/)
 - **Build Tool:** [Vite](https://vitejs.dev/)
 - **Deployment:** Ready for static hosting on platforms like Vercel, Netlify, or Firebase Hosting.
 
@@ -87,7 +89,6 @@ Follow these steps to get a local copy of FinanSage up and running on your machi
      ```
      VITE_API_KEY=YOUR_GEMINI_API_KEY
      ```
-   - You can get a free API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 4. **Run the development server:**
    ```sh
