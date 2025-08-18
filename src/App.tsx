@@ -1,9 +1,9 @@
 
 
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, SavingsInstrument, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard } from './types';
-import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems } from './constants';
-import { suggestCategory, processReceiptImage } from './services/geminiService';
+import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard, SuggestedSubscription } from './types';
+import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, dashboardCardDefs } from './constants';
+import { suggestCategory, processReceiptImage, getFinancialInsights, generateFinancialReport, fetchProductDetailsFromUrl, analyzePortfolio, findSubscriptions } from './services/geminiService';
 
 // UTILITY FUNCTIONS
 const classNames = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -451,6 +451,24 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
 
 const SkeletonLoader: React.FC<{ className?: string }> = ({ className }) => {
     return <div className={classNames('animate-skeleton-loading rounded-md', className)} />;
+};
+
+const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
+    // Basic markdown renderer to avoid XSS risks with dangerouslySetInnerHTML
+    const lines = content.split('\n');
+    return (
+        <div className="space-y-4 text-content-100 prose prose-invert max-w-none">
+            {lines.map((line, index) => {
+                line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+                if (line.startsWith('## ')) return <h2 key={index} className="text-2xl font-bold border-b border-base-300 pb-2 mb-4 text-white">{line.substring(3)}</h2>;
+                if (line.startsWith('### ')) return <h3 key={index} className="text-xl font-semibold mt-4 mb-2 text-white">{line.substring(4)}</h3>;
+                if (line.startsWith('* ')) return <li key={index} className="list-disc ml-5" dangerouslySetInnerHTML={{ __html: line.substring(2) }} />;
+                if (line.trim() === '') return null; // Don't render empty lines as paragraphs
+                return <p key={index} dangerouslySetInnerHTML={{ __html: line }} />;
+            })}
+        </div>
+    );
 };
 
 const FileInputButton: React.FC<{ onFileSelect: (base64: string, file: File) => void; children: React.ReactNode; capture?: 'user' | 'environment'; }> = ({ onFileSelect, children, capture }) => {
@@ -1293,7 +1311,7 @@ const TransactionsView: React.FC<{ openTransactionModal: (data?: Partial<Transac
                 <Card className="p-0 overflow-hidden">
                     {Object.entries(groupedTransactions).map(([date, txsOnDate]) => (
                         <div key={date}>
-                            <h3 className="bg-base-200/50 px-4 py-2 text-sm font-semibold text-content-100 sticky top-[65px] md:top-[73px] backdrop-blur-sm z-10">{formatGroupDate(date)}</h3>
+                            <h3 className="bg-base-200/95 backdrop-blur-md px-4 py-2 text-sm font-semibold text-content-100 sticky top-[65px] md:top-[73px] z-10 border-b border-base-300">{formatGroupDate(date)}</h3>
                             <div className="px-4">
                                 {txsOnDate.map(t => {
                                     const category = getCategoryById(t.categoryId);
@@ -1354,23 +1372,571 @@ const TransactionsView: React.FC<{ openTransactionModal: (data?: Partial<Transac
     );
 };
 
-const PlaceholderView: React.FC<{title: string}> = ({ title }) => (
-    <div className="flex justify-center items-center h-96 animate-fade-in">
-        <Card className="text-center">
-            <h2 className="text-2xl font-bold text-white mb-2">{title}</h2>
-            <p className="text-content-200">This feature is under construction. Check back soon!</p>
-        </Card>
-    </div>
-);
-const BudgetsView: React.FC = () => <PlaceholderView title="Budgets" />;
-const InsightsView: React.FC = () => <PlaceholderView title="AI Insights" />;
-const SettingsView: React.FC = () => <PlaceholderView title="Settings" />;
-const InvestmentsView: React.FC = () => <PlaceholderView title="Investments" />;
-const SavingsView: React.FC = () => <PlaceholderView title="Savings" />;
-const GoalsView: React.FC = () => <PlaceholderView title="Goals" />;
-const AssetsView: React.FC = () => <PlaceholderView title="Assets" />;
-const SubscriptionsView: React.FC = () => <PlaceholderView title="Subscriptions" />;
-const ReportsView: React.FC = () => <PlaceholderView title="Reports" />;
+// --- START OF IMPLEMENTED VIEWS ---
+
+const BudgetForm: React.FC<{onClose: () => void, existingBudget?: Budget}> = ({ onClose, existingBudget }) => {
+    const { budgets, addBudget, updateBudget, categories } = useFinance();
+    const [categoryId, setCategoryId] = useState(existingBudget?.categoryId || '');
+    const [amount, setAmount] = useState<number | undefined>(existingBudget?.amount || undefined);
+
+    const expenseCategories = useMemo(() => {
+        const budgetedCategoryIds = budgets.map(b => b.categoryId);
+        return categories
+            .filter(c => c.type === TransactionType.EXPENSE && (!budgetedCategoryIds.includes(c.id) || c.id === existingBudget?.categoryId));
+    }, [categories, budgets, existingBudget]);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if(!categoryId || !amount || amount <= 0) {
+            alert("Please select a category and enter a valid positive amount.");
+            return;
+        }
+        if (existingBudget) {
+            updateBudget({ ...existingBudget, categoryId, amount });
+        } else {
+            addBudget({ categoryId, amount, period: 'monthly' });
+        }
+        onClose();
+    };
+    
+    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <select value={categoryId} onChange={e => setCategoryId(e.target.value)} required className={inputClasses}>
+                <option value="">Select Category</option>
+                {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <input type="number" step="0.01" placeholder="Monthly Budget Amount" value={amount ?? ''} onChange={e => setAmount(parseFloat(e.target.value))} required className={inputClasses} />
+            <div className="flex justify-end gap-3 pt-4">
+                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+                <Button type="submit">{existingBudget ? 'Update' : 'Set'} Budget</Button>
+            </div>
+        </form>
+    );
+};
+
+const BudgetsView: React.FC = () => {
+    const { budgets, deleteBudget, getCategoryById, transactions, primaryCurrency } = useFinance();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingBudget, setEditingBudget] = useState<Budget | undefined>(undefined);
+
+    const openModal = (budget?: Budget) => {
+        setEditingBudget(budget);
+        setIsModalOpen(true);
+    };
+    const closeModal = () => {
+        setEditingBudget(undefined);
+        setIsModalOpen(false);
+    };
+
+    const budgetStatus = useMemo(() => {
+        const monthlyExpenses = transactions
+            .filter(t => t.type === TransactionType.EXPENSE && new Date(t.date).getMonth() === new Date().getMonth())
+            .reduce((acc, t) => {
+                acc[t.categoryId] = (acc[t.categoryId] || 0) + (Number(t.amount) || 0);
+                return acc;
+            }, {} as { [key: string]: number });
+
+        return budgets.map(b => {
+            const category = getCategoryById(b.categoryId);
+            const spent = monthlyExpenses[b.categoryId] || 0;
+            const progress = b.amount > 0 ? Math.min((spent / b.amount) * 100, 100) : 0;
+            const remaining = b.amount - spent;
+            return { ...b, categoryName: category?.name || 'Unknown', icon: category?.icon || 'misc', spent, progress, remaining };
+        });
+    }, [transactions, budgets, getCategoryById]);
+
+    return (
+        <div className="animate-fade-in">
+            <div className="flex justify-between items-center mb-8">
+                <h2 className="text-3xl font-bold text-white">Budgets</h2>
+                <Button onClick={() => openModal()}>{ICONS.plus} Add Budget</Button>
+            </div>
+            
+            {budgetStatus.length > 0 ? (
+                <div className="space-y-6">
+                    {budgetStatus.map(b => (
+                        <Card key={b.id} className="p-0">
+                           <div className="p-5">
+                                <div className="flex justify-between items-start gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <span className="p-3 bg-base-100 rounded-full text-content-200">{ICONS[b.icon]}</span>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">{b.categoryName}</h3>
+                                            <p className="text-sm text-content-200">Monthly Budget</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => openModal(b)}>{ICONS.edit}</button>
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => window.confirm(`Delete budget for ${b.categoryName}?`) && deleteBudget(b.id)}>{ICONS.trash}</button>
+                                    </div>
+                                </div>
+                                <div className="mt-4">
+                                    <div className="flex justify-between mb-1 text-sm">
+                                        <span className="font-semibold text-white">Spent: {formatCurrency(b.spent, primaryCurrency)}</span>
+                                        <span className="text-content-200">Limit: {formatCurrency(b.amount, primaryCurrency)}</span>
+                                    </div>
+                                    <div className="w-full bg-base-300 rounded-full h-2.5">
+                                        <div
+                                            className={classNames("h-2.5 rounded-full transition-all duration-500", b.progress > 85 ? 'bg-accent-error' : b.progress > 60 ? 'bg-accent-warning' : 'bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to')}
+                                            style={{ width: `${b.progress}%` }}
+                                        ></div>
+                                    </div>
+                                     <p className={classNames("text-right text-sm mt-1 font-medium", b.remaining >= 0 ? 'text-content-200' : 'text-accent-error')}>
+                                        {b.remaining >= 0 ? `${formatCurrency(b.remaining, primaryCurrency)} remaining` : `${formatCurrency(Math.abs(b.remaining), primaryCurrency)} over`}
+                                     </p>
+                                </div>
+                           </div>
+                        </Card>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center py-20">
+                    <p className="text-content-200">No budgets set. Create your first one to track spending.</p>
+                </div>
+            )}
+             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingBudget ? 'Edit Budget' : 'Set New Budget'}>
+                <BudgetForm onClose={closeModal} existingBudget={editingBudget}/>
+            </Modal>
+        </div>
+    )
+};
+
+const InsightsView: React.FC = () => {
+    const { transactions, accounts, categories } = useFinance();
+    const [isLoading, setIsLoading] = useState(false);
+    const [insights, setInsights] = useState("");
+
+    const handleGetInsights = async () => {
+        setIsLoading(true);
+        setInsights("");
+        try {
+            const result = await getFinancialInsights(transactions, accounts, categories);
+            setInsights(result);
+        } catch (error) {
+            console.error(error);
+            setInsights("An error occurred while fetching insights.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="animate-fade-in">
+            <div className="flex justify-between items-center mb-8">
+                <h2 className="text-3xl font-bold text-white">AI Insights</h2>
+                <Button onClick={handleGetInsights} disabled={isLoading}>Generate Insights</Button>
+            </div>
+            <Card>
+                {isLoading && (
+                    <div className="flex flex-col items-center justify-center p-8 space-y-3">
+                         <div className="w-12 h-12 border-4 border-base-300 border-t-brand-primary rounded-full animate-spin"></div>
+                         <p className="text-content-100 font-semibold">FinanSage is thinking...</p>
+                         <p className="text-sm text-content-200">Analyzing your financial data.</p>
+                    </div>
+                )}
+                {!isLoading && insights && <MarkdownRenderer content={insights} />}
+                {!isLoading && !insights && (
+                     <div className="text-center py-10">
+                        <p className="text-content-200">Click "Generate Insights" to get a personalized analysis of your financial health.</p>
+                     </div>
+                )}
+            </Card>
+        </div>
+    );
+};
+
+const ReportsView: React.FC = () => {
+    const { transactions, categories } = useFinance();
+    const [isLoading, setIsLoading] = useState(false);
+    const [report, setReport] = useState("");
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(1);
+        return formatInputDate(d);
+    });
+    const [endDate, setEndDate] = useState(formatInputDate(new Date()));
+
+    const handleGenerateReport = async () => {
+        setIsLoading(true);
+        setReport("");
+        const filteredTransactions = transactions.filter(t => {
+            const tDate = new Date(t.date);
+            return tDate >= new Date(startDate) && tDate <= new Date(endDate);
+        });
+
+        try {
+            const result = await generateFinancialReport(filteredTransactions, categories, startDate, endDate);
+            setReport(result);
+        } catch (error) {
+            console.error(error);
+            setReport("An error occurred while generating the report.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    return (
+         <div className="animate-fade-in">
+            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                <h2 className="text-3xl font-bold text-white">Financial Reports</h2>
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                    <CustomDatePicker value={startDate} onChange={setStartDate} />
+                    <CustomDatePicker value={endDate} onChange={setEndDate} />
+                    <Button onClick={handleGenerateReport} disabled={isLoading} className="w-full sm:w-auto">Generate Report</Button>
+                </div>
+            </div>
+             <Card>
+                {isLoading && (
+                    <div className="flex flex-col items-center justify-center p-8 space-y-3">
+                         <div className="w-12 h-12 border-4 border-base-300 border-t-brand-primary rounded-full animate-spin"></div>
+                         <p className="text-content-100 font-semibold">Generating your report...</p>
+                         <p className="text-sm text-content-200">This may take a moment.</p>
+                    </div>
+                )}
+                {!isLoading && report && <MarkdownRenderer content={report} />}
+                {!isLoading && !report && (
+                     <div className="text-center py-10">
+                        <p className="text-content-200">Select a date range and click "Generate Report" for an AI-powered summary.</p>
+                     </div>
+                )}
+            </Card>
+        </div>
+    );
+};
+
+const InvestmentsView: React.FC = () => <div className="text-center py-20"><p className="text-content-200">Investments View under construction.</p></div>;
+const SavingsView: React.FC = () => <div className="text-center py-20"><p className="text-content-200">Savings View under construction.</p></div>;
+const GoalsView: React.FC = () => <div className="text-center py-20"><p className="text-content-200">Goals View under construction.</p></div>;
+
+const AssetForm: React.FC<{onClose: () => void, existingAsset?: Asset}> = ({ onClose, existingAsset }) => {
+    const { addAsset, updateAsset, assetCategories } = useFinance();
+    const [asset, setAsset] = useState<Partial<Asset>>(existingAsset || { purchaseDate: new Date().toISOString() });
+    const [isFetching, setIsFetching] = useState(false);
+    
+    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setAsset(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleFileChange = async (base64: string) => {
+        setAsset(prev => ({...prev, imageUrl: base64}));
+    }
+
+    const handleFetchDetails = async () => {
+        if (!asset.productUrl) {
+            alert("Please enter a product URL.");
+            return;
+        }
+        setIsFetching(true);
+        try {
+            const details = await fetchProductDetailsFromUrl(asset.productUrl);
+            if (details) {
+                setAsset(prev => ({...prev, ...details}));
+            } else {
+                alert("Could not fetch details from the URL.");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("An error occurred while fetching details.");
+        } finally {
+            setIsFetching(false);
+        }
+    };
+    
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const { name, purchasePrice, purchaseDate, categoryId } = asset;
+        if (!name || typeof purchasePrice !== 'number' || isNaN(purchasePrice) || !purchaseDate || !categoryId) {
+            alert("Please fill all required fields.");
+            return;
+        }
+        if (existingAsset) {
+            updateAsset({ ...existingAsset, ...asset } as Asset);
+        } else {
+            addAsset(asset as Omit<Asset, 'id'>);
+        }
+        onClose();
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="flex items-end gap-2">
+                <input type="url" name="productUrl" placeholder="Fetch from Product URL (optional)" value={asset.productUrl || ''} onChange={handleChange} className={inputClasses} />
+                <Button type="button" variant="secondary" onClick={handleFetchDetails} disabled={isFetching}>{ICONS.link}</Button>
+            </div>
+            {isFetching && <SkeletonLoader className="h-24 w-full" />}
+            
+            <input type="text" name="name" placeholder="Asset Name" value={asset.name || ''} onChange={handleChange} required className={inputClasses} />
+            <textarea name="description" placeholder="Description (optional)" value={asset.description || ''} onChange={handleChange} className={classNames(inputClasses, "h-20")} />
+            <input type="number" step="0.01" name="purchasePrice" placeholder="Purchase Price" value={asset.purchasePrice ?? ''} onChange={(e) => setAsset(p => ({...p, purchasePrice: parseFloat(e.target.value)}))} required className={inputClasses} />
+            <CustomDatePicker value={formatInputDate(asset.purchaseDate)} onChange={(date) => setAsset(p => ({...p, purchaseDate: date}))} />
+            <select name="categoryId" value={asset.categoryId || ''} onChange={handleChange} required className={inputClasses}>
+                <option value="">Select Category</option>
+                {assetCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            
+            <div className="flex items-center gap-4">
+                {asset.imageUrl && <img src={asset.imageUrl} alt="Asset preview" className="w-16 h-16 rounded-lg object-cover"/>}
+                <FileInputButton onFileSelect={handleFileChange}>
+                   {ICONS.upload} {asset.imageUrl ? 'Change Image' : 'Upload Image'}
+                </FileInputButton>
+            </div>
+
+             <div className="flex justify-end gap-3 pt-4">
+                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+                <Button type="submit">{existingAsset ? 'Update' : 'Add'} Asset</Button>
+            </div>
+        </form>
+    );
+};
+
+
+const AssetsView: React.FC = () => {
+    const { assets, deleteAsset, getAssetCategoryById, primaryCurrency } = useFinance();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingAsset, setEditingAsset] = useState<Asset | undefined>(undefined);
+
+    const openModal = (asset?: Asset) => {
+        setEditingAsset(asset);
+        setIsModalOpen(true);
+    };
+
+    const closeModal = () => {
+        setEditingAsset(undefined);
+        setIsModalOpen(false);
+    };
+
+    return (
+        <div className="animate-fade-in">
+             <div className="flex justify-between items-center mb-8">
+                <h2 className="text-3xl font-bold text-white">Assets</h2>
+                <Button onClick={() => openModal()}>{ICONS.plus} Add Asset</Button>
+            </div>
+            {assets.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {assets.map((asset, index) => {
+                        const category = getAssetCategoryById(asset.categoryId);
+                        return (
+                             <Card key={asset.id} className="p-0" animate style={{ animationDelay: `${index * 50}ms`}}>
+                                {asset.imageUrl && <img src={asset.imageUrl} alt={asset.name} className="w-full h-40 object-cover rounded-t-2xl" />}
+                                <div className="p-5">
+                                    <div className="flex justify-between items-start gap-2">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">{asset.name}</h3>
+                                            <p className="text-sm text-content-200">{category?.name || 'Uncategorized'}</p>
+                                        </div>
+                                         <div className="flex gap-1">
+                                            <button className="p-2 rounded-full hover:bg-base-300" onClick={() => openModal(asset)}>{ICONS.edit}</button>
+                                            <button className="p-2 rounded-full hover:bg-base-300" onClick={() => window.confirm(`Delete asset "${asset.name}"?`) && deleteAsset(asset.id)}>{ICONS.trash}</button>
+                                        </div>
+                                    </div>
+                                    <p className="text-2xl font-light text-white mt-4">{formatCurrency(asset.purchasePrice, primaryCurrency)}</p>
+                                    <p className="text-xs text-content-200">Purchased on {formatDate(asset.purchaseDate)}</p>
+                                </div>
+                            </Card>
+                        )
+                    })}
+                </div>
+            ) : (
+                <div className="text-center py-20">
+                    <p className="text-content-200">No assets found. Add your valuable items to track your net worth.</p>
+                </div>
+            )}
+            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingAsset ? "Edit Asset" : "Add New Asset"}>
+                <AssetForm onClose={closeModal} existingAsset={editingAsset} />
+            </Modal>
+        </div>
+    );
+};
+
+const SubscriptionsView: React.FC = () => {
+    const { subscriptions, addSubscription, deleteSubscription, transactions, categories, getCategoryById, primaryCurrency } = useFinance();
+    const [isScanning, setIsScanning] = useState(false);
+    const [suggestedSubs, setSuggestedSubs] = useState<SuggestedSubscription[]>([]);
+
+    const handleScan = async () => {
+        setIsScanning(true);
+        setSuggestedSubs([]);
+        try {
+            const results = await findSubscriptions(transactions, categories);
+            const existingSubNames = subscriptions.map(s => s.name.toLowerCase());
+            // Filter out subscriptions that already exist
+            const newSuggestions = results.filter(r => r.name && !existingSubNames.includes(r.name.toLowerCase()));
+            setSuggestedSubs(newSuggestions);
+             if (newSuggestions.length === 0 && results.length > 0) {
+                alert("AI scan completed. No new subscriptions found that aren't already in your list.");
+            } else if (newSuggestions.length === 0) {
+                 alert("AI could not find any potential subscriptions from your recent transactions.");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("An error occurred while scanning for subscriptions.");
+        }
+        setIsScanning(false);
+    };
+
+    const handleAddSuggestion = (sub: SuggestedSubscription) => {
+        const category = categories.find(c => c.name === sub.categorySuggestion);
+        const nextPayment = new Date(sub.lastPaymentDate);
+        if (sub.frequency === 'monthly') nextPayment.setMonth(nextPayment.getMonth() + 1);
+        else if (sub.frequency === 'yearly') nextPayment.setFullYear(nextPayment.getFullYear() + 1);
+        else if (sub.frequency === 'weekly') nextPayment.setDate(nextPayment.getDate() + 7);
+
+        addSubscription({
+            name: sub.name,
+            amount: sub.amount,
+            frequency: sub.frequency,
+            nextPaymentDate: nextPayment.toISOString(),
+            categoryId: category?.id || categories.find(c=>c.name === 'Subscriptions')!.id
+        });
+        setSuggestedSubs(prev => prev.filter(s => s.name !== sub.name));
+    };
+
+    return (
+        <div className="animate-fade-in">
+             <div className="flex justify-between items-center mb-8">
+                <h2 className="text-3xl font-bold text-white">Subscriptions</h2>
+                <Button onClick={handleScan} disabled={isScanning}>{isScanning ? 'Scanning...' : 'Scan for Subscriptions'}</Button>
+            </div>
+
+            {isScanning && <Card><div className="text-center p-8"> <div className="w-12 h-12 border-4 border-base-300 border-t-brand-primary rounded-full animate-spin mx-auto mb-4"></div><p>Analyzing transactions for recurring payments...</p></div></Card>}
+            
+            {suggestedSubs.length > 0 && (
+                <Card className="mb-6">
+                    <h3 className="text-lg font-bold text-white mb-4">AI Suggestions</h3>
+                    <div className="space-y-3">
+                        {suggestedSubs.map((sub, i) => (
+                            <div key={i} className="flex justify-between items-center p-3 rounded-lg bg-base-100/50">
+                                <div>
+                                    <p className="font-semibold text-white">{sub.name}</p>
+                                    <p className="text-sm text-content-200">{formatCurrency(sub.amount, primaryCurrency)} / {sub.frequency}</p>
+                                </div>
+                                <Button onClick={() => handleAddSuggestion(sub)}>Add</Button>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            )}
+
+            {subscriptions.length > 0 ? (
+                <div className="space-y-4">
+                    {subscriptions.map(sub => {
+                        const category = getCategoryById(sub.categoryId);
+                        return (
+                            <Card key={sub.id}>
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <p className="font-bold text-lg text-white">{sub.name}</p>
+                                        <p className="text-sm text-content-200">{category?.name || 'Uncategorized'}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="font-semibold text-white text-lg">{formatCurrency(sub.amount, primaryCurrency)} <span className="text-sm text-content-200 capitalize">/ {sub.frequency.replace('ly', '')}</span></p>
+                                        <p className="text-xs text-content-200">Next payment: {formatDate(sub.nextPaymentDate)}</p>
+                                    </div>
+                                     <button className="p-2 rounded-full hover:bg-base-300 ml-4" onClick={() => window.confirm(`Delete subscription "${sub.name}"?`) && deleteSubscription(sub.id)}>{ICONS.trash}</button>
+                                </div>
+                            </Card>
+                        )
+                    })}
+                </div>
+            ) : (
+                !isScanning && suggestedSubs.length === 0 && (
+                    <div className="text-center py-20">
+                        <p className="text-content-200">No subscriptions found. Use the scanner to find them automatically.</p>
+                    </div>
+                )
+            )}
+        </div>
+    );
+};
+
+const SettingsView: React.FC = () => {
+    const { dashboardCards, setDashboardCards, categories, assetCategories, setCategories, setAssetCategories, primaryCurrency, setPrimaryCurrency } = useFinance();
+    const [activeTab, setActiveTab] = useState('dashboard');
+    
+    const tabs = [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'categories', label: 'Categories' },
+    ];
+
+    const handleDashboardCardToggle = (key: DashboardCard) => {
+        setDashboardCards(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    return (
+        <div className="animate-fade-in">
+            <h2 className="text-3xl font-bold text-white mb-8">Settings</h2>
+            <div className="border-b border-base-300 mb-6">
+                <nav className="-mb-px flex space-x-6">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={classNames(
+                                'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm',
+                                activeTab === tab.id
+                                    ? 'border-brand-primary text-brand-primary'
+                                    : 'border-transparent text-content-200 hover:text-white hover:border-gray-300'
+                            )}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
+            </div>
+
+            {activeTab === 'dashboard' && (
+                <Card>
+                    <h3 className="text-lg font-bold text-white mb-4">Customize Dashboard</h3>
+                    <div className="space-y-4">
+                        {dashboardCardDefs.map(card => (
+                            <div key={card.key} className="flex items-center justify-between p-3 bg-base-100/50 rounded-lg">
+                                <div>
+                                    <p className="font-semibold text-white">{card.label}</p>
+                                    <p className="text-xs text-content-200">{card.description}</p>
+                                </div>
+                                <button
+                                    onClick={() => handleDashboardCardToggle(card.key)}
+                                    className={classNames(
+                                        "relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none",
+                                        dashboardCards?.[card.key] ? 'bg-brand-gradient-to' : 'bg-base-300'
+                                    )}
+                                >
+                                    <span
+                                        className={classNames(
+                                            "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200",
+                                            dashboardCards?.[card.key] ? 'translate-x-5' : 'translate-x-0'
+                                        )}
+                                    />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            )}
+             {activeTab === 'categories' && (
+                <div className="space-y-6">
+                     <Card>
+                        <h3 className="text-lg font-bold text-white mb-4">Transaction Categories</h3>
+                         {/* TODO: Implement category manager UI */}
+                         <p className="text-content-200">Management for transaction and asset categories coming soon.</p>
+                     </Card>
+                      <Card>
+                        <h3 className="text-lg font-bold text-white mb-4">Asset Categories</h3>
+                         <p className="text-content-200">Management for transaction and asset categories coming soon.</p>
+                     </Card>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+// --- END OF IMPLEMENTED VIEWS ---
 
 const ReceiptScanner: React.FC<{
   onReceiptProcessed: (data: { merchantName: string, totalAmount: number, transactionDate: string }) => void;

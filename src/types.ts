@@ -131,6 +131,14 @@ export interface Subscription {
   categoryId: string;
 }
 
+export interface SuggestedSubscription {
+  name: string;
+  amount: number;
+  frequency: 'weekly' | 'monthly' | 'yearly';
+  lastPaymentDate: string;
+  categorySuggestion: string;
+}
+
 export interface NetWorthHistoryEntry {
     date: string; // YYYY-MM-DD
     value: number;

@@ -1,7 +1,8 @@
 
 
+
 import { GoogleGenAI, Type } from "@google/genai";
-import { Transaction, Category, TransactionType, Account, Asset, Subscription, Investment, InvestmentType } from '../types';
+import { Transaction, Category, TransactionType, Account, Asset, Subscription, Investment, InvestmentType, SuggestedSubscription } from '../types';
 
 const API_KEY = import.meta.env.VITE_API_KEY;
 
@@ -218,7 +219,7 @@ export const processReceiptImage = async (
     }
 };
 
-export const findSubscriptions = async (transactions: Transaction[], categories: Category[]): Promise<Partial<Subscription>[]> => {
+export const findSubscriptions = async (transactions: Transaction[], categories: Category[]): Promise<SuggestedSubscription[]> => {
     if (!API_KEY || transactions.length < 5) return [];
 
     const simplifiedTransactions = transactions
