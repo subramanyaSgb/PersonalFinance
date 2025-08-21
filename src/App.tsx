@@ -1,5 +1,8 @@
 
 
+
+
+
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard, SuggestedSubscription } from './types';
 import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, dashboardCardDefs } from './constants';
@@ -1606,9 +1609,429 @@ const ReportsView: React.FC = () => {
     );
 };
 
-const InvestmentsView: React.FC = () => <div className="text-center py-20"><p className="text-content-200">Investments View under construction.</p></div>;
-const SavingsView: React.FC = () => <div className="text-center py-20"><p className="text-content-200">Savings View under construction.</p></div>;
-const GoalsView: React.FC = () => <div className="text-center py-20"><p className="text-content-200">Goals View under construction.</p></div>;
+const InvestmentForm: React.FC<{onClose: () => void, existingInvestment?: Investment}> = ({ onClose, existingInvestment }) => {
+    const { addInvestment, updateInvestment } = useFinance();
+    const [investment, setInvestment] = useState<Partial<Investment>>(
+        existingInvestment || { type: InvestmentType.STOCK, purchaseDate: new Date().toISOString() }
+    );
+    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        const isNumber = ['units', 'purchasePrice', 'currentPrice'].includes(name);
+        setInvestment(prev => ({ ...prev, [name]: isNumber ? parseFloat(value) : value }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const { name, type, units, purchasePrice, currentPrice, purchaseDate } = investment;
+        if (!name || !type || !units || !purchasePrice || !currentPrice || !purchaseDate) {
+            alert("Please fill all required fields.");
+            return;
+        }
+        if (existingInvestment) {
+            updateInvestment({ ...existingInvestment, ...investment } as Investment);
+        } else {
+            addInvestment(investment as Omit<Investment, 'id'>);
+        }
+        onClose();
+    };
+    
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="text" name="name" placeholder="Stock/Fund Name (e.g. AAPL, VTI)" value={investment.name || ''} onChange={handleChange} required className={inputClasses} />
+            <select name="type" value={investment.type} onChange={handleChange} className={inputClasses}>
+                {Object.values(InvestmentType).map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="number" step="any" name="units" placeholder="Units / Shares" value={investment.units ?? ''} onChange={handleChange} required className={inputClasses} />
+            <input type="number" step="any" name="purchasePrice" placeholder="Average Purchase Price per Unit" value={investment.purchasePrice ?? ''} onChange={handleChange} required className={inputClasses} />
+            <input type="number" step="any" name="currentPrice" placeholder="Current Market Price per Unit" value={investment.currentPrice ?? ''} onChange={handleChange} required className={inputClasses} />
+            <div>
+                <label className="text-sm text-content-200">Purchase Date</label>
+                <CustomDatePicker value={formatInputDate(investment.purchaseDate)} onChange={(date) => setInvestment(p => ({...p, purchaseDate: date}))} />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+                <Button type="submit">{existingInvestment ? 'Update' : 'Add'} Investment</Button>
+            </div>
+        </form>
+    );
+};
+
+const InvestmentsView: React.FC = () => {
+    const { investments, deleteInvestment, primaryCurrency } = useFinance();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingInvestment, setEditingInvestment] = useState<Investment | undefined>(undefined);
+    const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
+    const [analysisResult, setAnalysisResult] = useState("");
+
+    const openModal = (inv?: Investment) => {
+        setEditingInvestment(inv);
+        setIsModalOpen(true);
+    };
+    const closeModal = () => {
+        setEditingInvestment(undefined);
+        setIsModalOpen(false);
+    };
+
+    const portfolioSummary = useMemo(() => {
+        const totalInvested = investments.reduce((sum, i) => sum + (i.units * i.purchasePrice), 0);
+        const currentValue = investments.reduce((sum, i) => sum + (i.units * i.currentPrice), 0);
+        const totalGainLoss = currentValue - totalInvested;
+        const totalGainLossPercent = totalInvested > 0 ? (totalGainLoss / totalInvested) * 100 : 0;
+        return { totalInvested, currentValue, totalGainLoss, totalGainLossPercent };
+    }, [investments]);
+
+    const handleAnalyze = async () => {
+        setIsLoadingAnalysis(true);
+        setAnalysisResult("");
+        try {
+            const result = await analyzePortfolio(investments);
+            setAnalysisResult(result);
+        } catch (error) {
+            console.error(error);
+            setAnalysisResult("An error occurred while analyzing your portfolio.");
+        } finally {
+            setIsLoadingAnalysis(false);
+        }
+    };
+    
+    return (
+        <div className="animate-fade-in">
+            <div className="flex justify-between items-center mb-8">
+                <h2 className="text-3xl font-bold text-white">Investments</h2>
+                <Button onClick={() => openModal()}>{ICONS.plus} Add Investment</Button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <Card><h4 className="font-semibold text-content-200 text-sm">Total Invested</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(portfolioSummary.totalInvested, primaryCurrency)}</p></Card>
+                <Card><h4 className="font-semibold text-content-200 text-sm">Current Value</h4><p className="text-2xl font-bold text-white mt-1">{formatCurrency(portfolioSummary.currentValue, primaryCurrency)}</p></Card>
+                <Card>
+                    <h4 className="font-semibold text-content-200 text-sm">Overall P/L</h4>
+                    <div className={classNames("text-2xl font-bold mt-1", portfolioSummary.totalGainLoss >= 0 ? 'text-accent-success' : 'text-accent-error')}>
+                        {portfolioSummary.totalGainLoss >= 0 ? '+' : ''}{formatCurrency(portfolioSummary.totalGainLoss, primaryCurrency)}
+                        <span className="text-sm ml-2">({portfolioSummary.totalGainLossPercent.toFixed(2)}%)</span>
+                    </div>
+                </Card>
+            </div>
+
+             <Card className="mb-6">
+                <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-bold text-white">AI Portfolio Analysis</h3>
+                    <Button onClick={handleAnalyze} disabled={isLoadingAnalysis || investments.length === 0}>
+                        {isLoadingAnalysis ? "Analyzing..." : "Analyze Portfolio"}
+                    </Button>
+                </div>
+                 {isLoadingAnalysis && <div className="text-center p-8"> <div className="w-8 h-8 border-4 border-base-300 border-t-brand-primary rounded-full animate-spin mx-auto mb-4"></div><p>FinanSage is analyzing your portfolio...</p></div>}
+                {!isLoadingAnalysis && analysisResult && <div className="mt-4"><MarkdownRenderer content={analysisResult} /></div>}
+                {!isLoadingAnalysis && !analysisResult && <p className="text-content-200 mt-2 text-sm">Get AI-powered insights on your portfolio's diversification and health.</p>}
+            </Card>
+
+            {investments.length > 0 ? (
+                <div className="space-y-4">
+                    {investments.map(inv => {
+                        const invested = inv.units * inv.purchasePrice;
+                        const current = inv.units * inv.currentPrice;
+                        const pnl = current - invested;
+                        const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
+                        return (
+                            <Card key={inv.id}>
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white">{inv.name}</h3>
+                                        <p className="text-sm text-content-200">{inv.type} &bull; {inv.units} units</p>
+                                    </div>
+                                    <div className="flex gap-1">
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => openModal(inv)}>{ICONS.edit}</button>
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => window.confirm(`Delete investment "${inv.name}"?`) && deleteInvestment(inv.id)}>{ICONS.trash}</button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
+                                    <div><p className="text-content-200">Invested</p><p className="font-semibold text-white">{formatCurrency(invested, primaryCurrency)}</p></div>
+                                    <div><p className="text-content-200">Current Value</p><p className="font-semibold text-white">{formatCurrency(current, primaryCurrency)}</p></div>
+                                    <div className="col-span-2"><p className="text-content-200">Profit/Loss</p><p className={classNames("font-semibold", pnl >= 0 ? 'text-accent-success' : 'text-accent-error')}>{pnl >= 0 ? '+' : ''}{formatCurrency(pnl, primaryCurrency)} ({pnlPercent.toFixed(2)}%)</p></div>
+                                </div>
+                            </Card>
+                        )
+                    })}
+                </div>
+            ) : <div className="text-center py-20"><p className="text-content-200">No investments added yet.</p></div>}
+            
+            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingInvestment ? "Edit Investment" : "Add Investment"}>
+                <InvestmentForm onClose={closeModal} existingInvestment={editingInvestment} />
+            </Modal>
+        </div>
+    );
+};
+
+const SavingForm: React.FC<{ onClose: () => void, existingSaving?: SavingsInstrument }> = ({ onClose, existingSaving }) => {
+    const { addSaving, updateSaving } = useFinance();
+    const [saving, setSaving] = useState<Partial<SavingsInstrument>>(
+        existingSaving || { type: SavingsType.FD, depositDate: new Date().toISOString() }
+    );
+    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        const isNumber = ['principal', 'interestRate', 'maturityAmount'].includes(name);
+        setSaving(prev => ({ ...prev, [name]: isNumber ? parseFloat(value) : value }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const { type, bankName, principal, interestRate, depositDate, maturityDate } = saving;
+        if (!type || !bankName || !principal || !interestRate || !depositDate || !maturityDate) {
+            alert("Please fill all required fields.");
+            return;
+        }
+        if (existingSaving) {
+            updateSaving({ ...existingSaving, ...saving } as SavingsInstrument);
+        } else {
+            addSaving(saving as Omit<SavingsInstrument, 'id'>);
+        }
+        onClose();
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <select name="type" value={saving.type} onChange={handleChange} className={inputClasses}>
+                {Object.values(SavingsType).map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="text" name="bankName" placeholder="Bank or Institution Name" value={saving.bankName || ''} onChange={handleChange} required className={inputClasses} />
+            <input type="text" name="accountNumber" placeholder="Account Number (optional)" value={saving.accountNumber || ''} onChange={handleChange} className={inputClasses} />
+            <input type="number" step="any" name="principal" placeholder={saving.type === SavingsType.RD ? "Monthly Installment" : "Principal Amount"} value={saving.principal ?? ''} onChange={handleChange} required className={inputClasses} />
+            <input type="number" step="any" name="interestRate" placeholder="Interest Rate (%)" value={saving.interestRate ?? ''} onChange={handleChange} required className={inputClasses} />
+            <div>
+                <label className="text-sm text-content-200">Deposit Date</label>
+                <CustomDatePicker value={formatInputDate(saving.depositDate)} onChange={date => setSaving(p => ({...p, depositDate: date}))} />
+            </div>
+            <div>
+                <label className="text-sm text-content-200">Maturity Date</label>
+                <CustomDatePicker value={formatInputDate(saving.maturityDate)} onChange={date => setSaving(p => ({...p, maturityDate: date}))} />
+            </div>
+            <input type="number" step="any" name="maturityAmount" placeholder="Maturity Amount (optional)" value={saving.maturityAmount ?? ''} onChange={handleChange} className={inputClasses} />
+            <div className="flex justify-end gap-3 pt-4">
+                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+                <Button type="submit">{existingSaving ? 'Update' : 'Add'} Saving</Button>
+            </div>
+        </form>
+    );
+};
+
+const SavingsView: React.FC = () => {
+    const { savings, deleteSaving, primaryCurrency } = useFinance();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingSaving, setEditingSaving] = useState<SavingsInstrument | undefined>(undefined);
+
+    const openModal = (s?: SavingsInstrument) => {
+        setEditingSaving(s);
+        setIsModalOpen(true);
+    };
+    const closeModal = () => {
+        setEditingSaving(undefined);
+        setIsModalOpen(false);
+    };
+
+    return (
+        <div className="animate-fade-in">
+            <div className="flex justify-between items-center mb-8">
+                <h2 className="text-3xl font-bold text-white">Savings</h2>
+                <Button onClick={() => openModal()}>{ICONS.plus} Add Saving</Button>
+            </div>
+            {savings.length > 0 ? (
+                <div className="space-y-4">
+                    {savings.map(s => {
+                         const depositTime = new Date(s.depositDate).getTime();
+                         const maturityTime = new Date(s.maturityDate).getTime();
+                         const now = new Date().getTime();
+                         const totalDuration = maturityTime - depositTime;
+                         const elapsedDuration = now - depositTime;
+                         const progress = totalDuration > 0 ? Math.min((elapsedDuration / totalDuration) * 100, 100) : 0;
+
+                        return (
+                             <Card key={s.id}>
+                                 <div className="flex justify-between items-start">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white">{s.bankName}</h3>
+                                        <p className="text-sm text-content-200">{s.type}</p>
+                                    </div>
+                                    <div className="flex gap-1">
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => openModal(s)}>{ICONS.edit}</button>
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => window.confirm(`Delete this saving instrument?`) && deleteSaving(s.id)}>{ICONS.trash}</button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
+                                     <div><p className="text-content-200">{s.type === SavingsType.RD ? 'Installment' : 'Principal'}</p><p className="font-semibold text-white">{formatCurrency(s.principal, primaryCurrency)}</p></div>
+                                     <div><p className="text-content-200">Interest Rate</p><p className="font-semibold text-white">{s.interestRate.toFixed(2)}%</p></div>
+                                     <div><p className="text-content-200">Maturity Date</p><p className="font-semibold text-white">{formatDate(s.maturityDate)}</p></div>
+                                     <div><p className="text-content-200">Maturity Value</p><p className="font-semibold text-white">{s.maturityAmount ? formatCurrency(s.maturityAmount, primaryCurrency) : 'N/A'}</p></div>
+                                </div>
+                                 <div className="mt-4">
+                                    <div className="w-full bg-base-300 rounded-full h-2">
+                                        <div className="bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to h-2 rounded-full" style={{ width: `${progress}%` }}></div>
+                                    </div>
+                                    <p className="text-xs text-content-200 text-right mt-1">{Math.floor(progress)}% to maturity</p>
+                                 </div>
+                            </Card>
+                        )
+                    })}
+                </div>
+            ) : <div className="text-center py-20"><p className="text-content-200">No savings instruments added yet.</p></div>}
+            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingSaving ? "Edit Saving" : "Add Saving"}>
+                <SavingForm onClose={closeModal} existingSaving={editingSaving} />
+            </Modal>
+        </div>
+    )
+};
+
+const GoalForm: React.FC<{ onClose: () => void, existingGoal?: Goal }> = ({ onClose, existingGoal }) => {
+    const { addGoal, updateGoal } = useFinance();
+    const [goal, setGoal] = useState<Partial<Goal>>(existingGoal || { targetDate: new Date().toISOString() });
+
+    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setGoal(prev => ({ ...prev, [name]: name === 'targetAmount' ? parseFloat(value) : value }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const { name, targetAmount, targetDate } = goal;
+        if (!name || !targetAmount || !targetDate) {
+            alert("Please fill all required fields.");
+            return;
+        }
+        if (existingGoal) {
+            updateGoal({ ...existingGoal, ...goal } as Goal);
+        } else {
+            addGoal(goal as Omit<Goal, 'id' | 'currentAmount'>);
+        }
+        onClose();
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="text" name="name" placeholder="Goal Name (e.g. New Car, Vacation)" value={goal.name || ''} onChange={handleChange} required className={inputClasses} />
+            <input type="number" step="any" name="targetAmount" placeholder="Target Amount" value={goal.targetAmount ?? ''} onChange={handleChange} required className={inputClasses} />
+            <div>
+                <label className="text-sm text-content-200">Target Date</label>
+                <CustomDatePicker value={formatInputDate(goal.targetDate)} onChange={date => setGoal(p => ({ ...p, targetDate: date }))} />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+                <Button type="submit">{existingGoal ? 'Update' : 'Create'} Goal</Button>
+            </div>
+        </form>
+    );
+};
+
+const ContributeToGoalForm: React.FC<{ onClose: () => void, goal: Goal }> = ({ onClose, goal }) => {
+    const { accounts, makeGoalContribution } = useFinance();
+    const [amount, setAmount] = useState<number | undefined>();
+    const [fromAccountId, setFromAccountId] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!amount || amount <= 0 || !fromAccountId) {
+            alert("Please enter a valid amount and select an account.");
+            return;
+        }
+        makeGoalContribution(goal.id, amount, fromAccountId);
+        onClose();
+    };
+
+    const inputClasses = "w-full bg-base-100/50 p-3 rounded-lg text-white border border-base-300 focus:ring-2 focus:ring-brand-gradient-to focus:border-transparent";
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="number" step="any" placeholder="Contribution Amount" value={amount ?? ''} onChange={e => setAmount(parseFloat(e.target.value))} required className={inputClasses} />
+            <select value={fromAccountId} onChange={e => setFromAccountId(e.target.value)} required className={inputClasses}>
+                <option value="">From Account</option>
+                {accounts.filter(a => a.type !== AccountType.CREDIT_CARD && a.type !== AccountType.LOAN).map(a => <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.balance, a.currency)})</option>)}
+            </select>
+            <div className="flex justify-end gap-3 pt-4">
+                <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+                <Button type="submit">Contribute</Button>
+            </div>
+        </form>
+    );
+};
+
+
+const GoalsView: React.FC = () => {
+    const { goals, deleteGoal, primaryCurrency } = useFinance();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isContributeModalOpen, setIsContributeModalOpen] = useState(false);
+    const [selectedGoal, setSelectedGoal] = useState<Goal | undefined>(undefined);
+
+    const openModal = (g?: Goal) => {
+        setSelectedGoal(g);
+        setIsModalOpen(true);
+    };
+    const closeModal = () => {
+        setSelectedGoal(undefined);
+        setIsModalOpen(false);
+    };
+
+    const openContributeModal = (g: Goal) => {
+        setSelectedGoal(g);
+        setIsContributeModalOpen(true);
+    };
+    const closeContributeModal = () => {
+        setSelectedGoal(undefined);
+        setIsContributeModalOpen(false);
+    };
+    
+    return (
+        <div className="animate-fade-in">
+             <div className="flex justify-between items-center mb-8">
+                <h2 className="text-3xl font-bold text-white">Goals</h2>
+                <Button onClick={() => openModal()}>{ICONS.plus} Add Goal</Button>
+            </div>
+            {goals.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {goals.map(g => {
+                        const progress = g.targetAmount > 0 ? Math.min((g.currentAmount / g.targetAmount) * 100, 100) : 0;
+                        return (
+                            <Card key={g.id}>
+                                <div className="flex justify-between items-start">
+                                    <h3 className="text-lg font-bold text-white">{g.name}</h3>
+                                     <div className="flex gap-1">
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => openModal(g)}>{ICONS.edit}</button>
+                                        <button className="p-2 rounded-full hover:bg-base-300" onClick={() => window.confirm(`Delete goal "${g.name}"?`) && deleteGoal(g.id)}>{ICONS.trash}</button>
+                                    </div>
+                                </div>
+                                <div className="mt-4">
+                                    <div className="flex justify-between mb-1 text-sm">
+                                        <span className="font-semibold text-white">{formatCurrency(g.currentAmount, primaryCurrency)}</span>
+                                        <span className="text-content-200">{formatCurrency(g.targetAmount, primaryCurrency)}</span>
+                                    </div>
+                                    <div className="w-full bg-base-300 rounded-full h-2.5">
+                                        <div className="bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to h-2.5 rounded-full" style={{ width: `${progress}%`}}></div>
+                                    </div>
+                                    <p className="text-xs text-content-200 mt-1">Target: {formatDate(g.targetDate)}</p>
+                                </div>
+                                <div className="mt-4 flex justify-end">
+                                    <Button onClick={() => openContributeModal(g)}>Contribute</Button>
+                                </div>
+                            </Card>
+                        )
+                    })}
+                </div>
+            ) : <div className="text-center py-20"><p className="text-content-200">No goals set yet. Create one to start saving!</p></div>}
+            
+            <Modal isOpen={isModalOpen} onClose={closeModal} title={selectedGoal ? "Edit Goal" : "Create New Goal"}>
+                <GoalForm onClose={closeModal} existingGoal={selectedGoal} />
+            </Modal>
+            {selectedGoal && (
+                 <Modal isOpen={isContributeModalOpen} onClose={closeContributeModal} title={`Contribute to ${selectedGoal.name}`}>
+                    <ContributeToGoalForm onClose={closeContributeModal} goal={selectedGoal} />
+                </Modal>
+            )}
+        </div>
+    );
+};
 
 const AssetForm: React.FC<{onClose: () => void, existingAsset?: Asset}> = ({ onClose, existingAsset }) => {
     const { addAsset, updateAsset, assetCategories } = useFinance();
@@ -1855,7 +2278,7 @@ const SubscriptionsView: React.FC = () => {
 };
 
 const SettingsView: React.FC = () => {
-    const { dashboardCards, setDashboardCards, categories, assetCategories, setCategories, setAssetCategories, primaryCurrency, setPrimaryCurrency } = useFinance();
+    const { dashboardCards, setDashboardCards, categories, addCategory, updateCategory, deleteCategory, assetCategories, addAssetCategory, updateAssetCategory, deleteAssetCategory, primaryCurrency, setPrimaryCurrency } = useFinance();
     const [activeTab, setActiveTab] = useState('dashboard');
     
     const tabs = [
@@ -1919,17 +2342,7 @@ const SettingsView: React.FC = () => {
                 </Card>
             )}
              {activeTab === 'categories' && (
-                <div className="space-y-6">
-                     <Card>
-                        <h3 className="text-lg font-bold text-white mb-4">Transaction Categories</h3>
-                         {/* TODO: Implement category manager UI */}
-                         <p className="text-content-200">Management for transaction and asset categories coming soon.</p>
-                     </Card>
-                      <Card>
-                        <h3 className="text-lg font-bold text-white mb-4">Asset Categories</h3>
-                         <p className="text-content-200">Management for transaction and asset categories coming soon.</p>
-                     </Card>
-                </div>
+                <div className="text-center py-20"><p className="text-content-200">Category management is under construction.</p></div>
             )}
         </div>
     );
