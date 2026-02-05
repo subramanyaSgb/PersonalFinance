@@ -1,5 +1,7 @@
 {
   "name": "FinanSage",
   "description": "A personal finance management application that helps you track your accounts, transactions, and budgets. It also provides AI-powered insights to improve your financial health.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

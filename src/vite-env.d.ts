@@ -1,9 +1,5 @@
-/// <reference types="vite/client" />
 
-interface ImportMetaEnv {
-  readonly VITE_API_KEY: string;
-}
+// Fix: Removed problematic vite/client reference and environment variable type declarations 
+// that are not needed when using process.env.API_KEY.
 
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
+export {};

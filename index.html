@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -17,50 +18,31 @@
               sans: ['Inter', 'sans-serif'],
             },
             colors: {
-              'base-100': '#0A0A0A', // Near Black
-              'base-200': '#1A1A1A', // Card Background
-              'base-300': '#2A2A2A', // Borders & Dividers
-              'content-100': '#FFFFFF', // Primary Text (White)
-              'content-200': '#A1A1A1', // Secondary Text (Gray)
-              'brand-primary': '#FFFFFF', // Primary action color (white)
-              'brand-secondary': '#E5E5E5', // Lighter white
-              'accent-success': '#34D399', // Green
-              'accent-warning': '#FBBF24', // Yellow
-              'accent-error': '#F87171', // Red
-              'glow-start': 'rgba(192, 132, 252, 0.2)', // Purple glow for aurora
-              'glow-end': 'rgba(79, 70, 229, 0)', // Transparent
-              'brand-gradient-from': '#818CF8', // Indigo
-              'brand-gradient-to': '#C084FC',   // Purple
+              'base-100': '#0A0A0A',
+              'base-200': '#1A1A1A',
+              'base-300': '#2A2A2A',
+              'content-100': '#FFFFFF',
+              'content-200': '#A1A1A1',
+              'brand-primary': '#FFFFFF',
+              'brand-secondary': '#E5E5E5',
+              'accent-success': '#34D399',
+              'accent-warning': '#FBBF24',
+              'accent-error': '#F87171',
+              'glow-start': 'rgba(192, 132, 252, 0.2)',
+              'glow-end': 'rgba(79, 70, 229, 0)',
+              'brand-gradient-from': '#818CF8',
+              'brand-gradient-to': '#C084FC',
             },
             backgroundImage: {
               'gradient-radial': 'radial-gradient(ellipse at center, var(--tw-gradient-stops))',
               'brand-gradient': 'linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to))',
             },
             keyframes: {
-              'fade-in': {
-                '0%': { opacity: '0' },
-                '100%': { opacity: '1' },
-              },
-              'slide-up': {
-                  '0%': { opacity: '0', transform: 'translateY(20px)' },
-                  '100%': { opacity: '1', transform: 'translateY(0px)' },
-              },
-              'slide-up-sheet': {
-                  '0%': { transform: 'translateY(100%)' },
-                  '100%': { transform: 'translateY(0)' },
-              },
-              'shimmer': {
-                  '100%': { transform: 'translateX(100%)' },
-              },
-              'skeleton-loading': {
-                  '0%': { backgroundColor: '#2A2A2A' },
-                  '50%': { backgroundColor: '#3A3A3A' },
-                  '100%': { backgroundColor: '#2A2A2A' },
-              },
-               'list-item-in': {
-                '0%': { opacity: '0', transform: 'translateX(-20px)' },
-                '100%': { opacity: '1', transform: 'translateX(0)' },
-              }
+              'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+              'slide-up': { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0px)' } },
+              'slide-up-sheet': { '0%': { transform: 'translateY(100%)' }, '100%': { transform: 'translateY(0)' } },
+              'skeleton-loading': { '0%': { backgroundColor: '#2A2A2A' }, '50%': { backgroundColor: '#3A3A3A' }, '100%': { backgroundColor: '#2A2A2A' } },
+              'list-item-in': { '0%': { opacity: '0', transform: 'translateX(-20px)' }, '100%': { opacity: '1', transform: 'translateX(0)' } }
             },
             animation: {
               'fade-in': 'fade-in 0.5s ease-out forwards',
@@ -89,6 +71,6 @@
 </head>
   <body class="bg-base-100 text-content-100 font-sans">
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="main.tsx"></script>
   </body>
 </html>

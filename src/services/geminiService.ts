@@ -1,16 +1,9 @@
 
-
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Transaction, Category, TransactionType, Account, Asset, Subscription, Investment, InvestmentType, SuggestedSubscription } from '../types';
 
-const API_KEY = import.meta.env.VITE_API_KEY;
-
-if (!API_KEY) {
-  console.warn("VITE_API_KEY environment variable not set. Gemini features will be disabled.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY! });
+// Fix: Always use process.env.API_KEY directly for initialization as per guidelines
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const formatDate = (isoString: string | Date): string => {
     if (!isoString) return 'N/A';
@@ -24,7 +17,6 @@ export const getFinancialInsights = async (
   accounts: Account[],
   categories: Category[]
 ): Promise<string> => {
-  if (!API_KEY) return "API Key not configured. Please set the VITE_API_KEY environment variable in your deployment settings.";
   if (transactions.length === 0) return "No transaction data available to analyze.";
 
   const simplifiedTransactions = transactions.map(t => ({
@@ -55,8 +47,9 @@ export const getFinancialInsights = async (
   `;
   
   try {
+    // Fix: Using gemini-3-flash-preview for basic text tasks
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
     });
     return response.text || "Sorry, I couldn't generate insights at this moment.";
@@ -71,8 +64,6 @@ export const suggestCategory = async (
   description: string,
   categories: Category[]
 ): Promise<string | null> => {
-  if (!API_KEY) return null;
-
   const expenseCategories = categories
     .filter(c => c.type === TransactionType.EXPENSE)
     .map(c => c.name);
@@ -84,8 +75,9 @@ export const suggestCategory = async (
   `;
 
   try {
+    // Fix: Using gemini-3-flash-preview for basic text tasks
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -121,16 +113,15 @@ export const suggestCategory = async (
 };
 
 export const fetchProductDetailsFromUrl = async (url: string): Promise<Partial<Asset> | null> => {
-    if (!API_KEY) return null;
-
     const prompt = `
         Given the URL of a product page, extract the following details.
         URL: "${url}"
     `;
 
     try {
+        // Fix: Using gemini-3-flash-preview for basic text tasks
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-3-flash-preview",
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -175,8 +166,6 @@ export const processReceiptImage = async (
     base64Image: string,
     mimeType: string
 ): Promise<{ merchantName: string, totalAmount: number, transactionDate: string } | null> => {
-    if (!API_KEY) return null;
-
     const imagePart = {
         inlineData: {
             data: base64Image,
@@ -187,8 +176,9 @@ export const processReceiptImage = async (
     const prompt = "Analyze this receipt image. Extract the merchant name, the final total amount, and the transaction date. Today is "+ new Date().toISOString().split('T')[0] +". If the year is not present on the receipt, assume the current year.";
 
     try {
+        // Fix: Using gemini-3-flash-preview for image processing
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: { parts: [imagePart, {text: prompt}] },
             config: {
                  responseMimeType: "application/json",
@@ -220,7 +210,7 @@ export const processReceiptImage = async (
 };
 
 export const findSubscriptions = async (transactions: Transaction[], categories: Category[]): Promise<SuggestedSubscription[]> => {
-    if (!API_KEY || transactions.length < 5) return [];
+    if (transactions.length < 5) return [];
 
     const simplifiedTransactions = transactions
         .filter(t => t.type === TransactionType.EXPENSE)
@@ -243,8 +233,9 @@ export const findSubscriptions = async (transactions: Transaction[], categories:
     `;
 
     try {
+        // Fix: Using gemini-3-flash-preview for basic text tasks
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-3-flash-preview",
             contents: prompt,
             config: {
                 systemInstruction: "You are an AI assistant specialized in finding recurring payments from transaction data. You must only output a valid JSON object matching the provided schema. If no subscriptions are found, return an empty array.",
@@ -296,7 +287,6 @@ export const generateFinancialReport = async (
   startDate: string,
   endDate: string
 ): Promise<string> => {
-  if (!API_KEY) return "API Key not configured. AI analysis is disabled.";
   if (transactions.length === 0) return "### No transactions in the selected period to analyze.";
 
   const MAX_TRANSACTIONS = 500;
@@ -326,8 +316,9 @@ export const generateFinancialReport = async (
   `;
 
   try {
+    // Fix: Using gemini-3-flash-preview for report generation
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         systemInstruction: "You are a helpful financial analyst AI. You will generate a clear, professional report in markdown format based on the user's data. Be encouraging and focus on actionable advice."
@@ -336,12 +327,11 @@ export const generateFinancialReport = async (
     return response.text || "Could not generate AI analysis.";
   } catch (error) {
     console.error("Error generating financial report:", error);
-    return "An error occurred while generating the AI analysis. Please check your API key and network connection.";
+    return "An error occurred while generating the AI analysis. Please check your network connection.";
   }
 };
 
 export const analyzePortfolio = async (investments: Investment[]): Promise<string> => {
-  if (!API_KEY) return "API Key not configured. Portfolio analysis is disabled.";
   if (investments.length === 0) return "You don't have any investments to analyze.";
 
   const portfolioSummary = {
@@ -388,8 +378,9 @@ export const analyzePortfolio = async (investments: Investment[]): Promise<strin
   `;
 
   try {
+    // Fix: Using gemini-3-flash-preview for portfolio analysis
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
     });
     return response.text || "Sorry, I couldn't analyze your portfolio at this moment.";

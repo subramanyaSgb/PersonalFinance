@@ -1,11 +1,8 @@
 
-
-
-
-
 import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import { Account, AccountType, Transaction, TransactionType, Category, Budget, View, Investment, InvestmentType, SavingsInstrument, SavingsType, Goal, Asset, AssetCategory, Subscription, NetWorthHistoryEntry, DashboardCard, SuggestedSubscription } from './types';
-import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, dashboardCardDefs } from './constants';
+// Fix: Added NavItemDef to imports
+import { CURRENCIES, DEFAULT_CATEGORIES, ICONS, DEFAULT_ASSET_CATEGORIES, allNavItems, mainNavItems, moreNavItems, dashboardCardDefs, NavItemDef } from './constants';
 import { suggestCategory, processReceiptImage, getFinancialInsights, generateFinancialReport, fetchProductDetailsFromUrl, analyzePortfolio, findSubscriptions } from './services/geminiService';
 
 // UTILITY FUNCTIONS
@@ -276,8 +273,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTransactions(prev => prev.filter(t => t.id !== id));
       setAccounts(prevAccounts => prevAccounts.map(acc => {
           if (acc.id === transactionToDelete.accountId) {
-              const newBalance = transactionToDelete.type === TransactionType.INCOME ? acc.balance - transactionToDelete.amount : acc.balance + transactionToDelete.amount;
-              return { ...acc, balance: newBalance };
+              const newBalance = transactionToDelete.type === TransactionType.INCOME ? transactionToDelete.amount : transactionToDelete.amount;
+              return { ...acc, balance: acc.balance + (transactionToDelete.type === TransactionType.INCOME ? -transactionToDelete.amount : transactionToDelete.amount) };
           }
            if (transactionToDelete.type === TransactionType.TRANSFER && acc.id === transactionToDelete.toAccountId) {
               return { ...acc, balance: acc.balance - transactionToDelete.amount };
@@ -1484,7 +1481,7 @@ const BudgetsView: React.FC = () => {
                                         <div
                                             className={classNames("h-2.5 rounded-full transition-all duration-500", b.progress > 85 ? 'bg-accent-error' : b.progress > 60 ? 'bg-accent-warning' : 'bg-gradient-to-r from-brand-gradient-from to-brand-gradient-to')}
                                             style={{ width: `${b.progress}%` }}
-                                        ></div>
+                               +         ></div>
                                     </div>
                                      <p className={classNames("text-right text-sm mt-1 font-medium", b.remaining >= 0 ? 'text-content-200' : 'text-accent-error')}>
                                         {b.remaining >= 0 ? `${formatCurrency(b.remaining, primaryCurrency)} remaining` : `${formatCurrency(Math.abs(b.remaining), primaryCurrency)} over`}
@@ -2471,7 +2468,8 @@ function App() {
     const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
     const mainViewsToShow = allNavItems.filter(navItem => bottomNavViews.includes(navItem.view));
-    const navItems = mainViewsToShow.length >= 4 ? mainViewsToShow.slice(0, 4) : mainNavItems.slice(0, 4);
+    // Fix: Explicitly type navItems as NavItemDef[] to resolve 'unknown' type error
+    const navItems: NavItemDef[] = mainViewsToShow.length >= 4 ? mainViewsToShow.slice(0, 4) : mainNavItems.slice(0, 4);
     
     return (
         <nav className="fixed bottom-0 left-0 right-0 bg-base-200/80 backdrop-blur-lg border-t border-base-300 md:hidden z-30">
